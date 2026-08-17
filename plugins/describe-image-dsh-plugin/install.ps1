@@ -48,7 +48,14 @@ $current = if (Test-Path $patchFile) { Get-Content $patchFile -Raw } else { '' }
 if ($current -match 'tool-describe-image') {
   Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
 } else {
-  Add-Content -Path $patchFile -Value $entryText -Encoding UTF8
+  # dsh initializes cordis.patch.yml with a bare "[]" (empty-array placeholder).
+  # Appending entries after it would produce invalid YAML (js-yaml / cordis both
+  # reject a sequence that continues after a flow value), so strip that line and
+  # merge the entry into the existing list. Written UTF-8 without BOM.
+  $lines = ($current -split "`r?`n") | Where-Object { $_ -notmatch '^\s*\[\]\s*$' }
+  $base = ($lines -join "`n").TrimEnd()
+  $combined = if ($base) { $base + "`n" + $entryText.TrimStart() } else { $entryText.TrimStart() }
+  [System.IO.File]::WriteAllText($patchFile, $combined, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host "OK  profile patch entry added -> $patchFile" -ForegroundColor Green
 }
 
