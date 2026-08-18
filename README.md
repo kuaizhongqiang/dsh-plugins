@@ -15,7 +15,8 @@ dsh-plugins/
 │   ├── video-read-dsh-plugin/
 │   ├── audio-read-dsh-plugin/
 │   ├── audio-speak-dsh-plugin/
-│   └── credentials-dsh-plugin/
+│   ├── credentials-dsh-plugin/
+│   └── stock-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
@@ -24,7 +25,8 @@ dsh-plugins/
 │   ├── install-video-read/SKILL.md
 │   ├── install-audio-read/SKILL.md
 │   ├── install-audio-speak/SKILL.md
-│   └── install-credentials/SKILL.md
+│   ├── install-credentials/SKILL.md
+│   └── install-stock/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -59,6 +61,7 @@ dsh-plugins/
 | [audio-read](plugins/audio-read-dsh-plugin/README.md) | 音频读取工具：`transcribe_audio` 语音转写（`mimo-v2.5-asr`，mp3/wav）+ `understand_audio` 音频理解（`mimo-v2.5`，mp3/wav/flac/m4a/ogg） | `MIMO_API_KEY` | `install-audio-read` |
 | [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
 | [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值，set 可挂 approval 闸门 | 无 | `install-credentials` |
+| [stock](plugins/stock-dsh-plugin/README.md) | A股行情与自选股：`stock_quote`/`stock_kline`/`stock_indicators`（MA/MACD/RSI/KDJ/ATR）/`stock_market_overview`/`watchlist_*`/`stock_daily_collect`/`stock_report`，腾讯公开接口、零密钥 | 无 | `install-stock` |
 
 ## 环境要求（目标电脑）
 
