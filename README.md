@@ -16,7 +16,9 @@ dsh-plugins/
 │   ├── audio-read-dsh-plugin/
 │   ├── audio-speak-dsh-plugin/
 │   ├── credentials-dsh-plugin/
-│   └── stock-dsh-plugin/
+│   ├── stock-dsh-plugin/
+│   ├── deepseek-balance-dsh-plugin/
+│   └── deepseek-recharge-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
@@ -26,7 +28,9 @@ dsh-plugins/
 │   ├── install-audio-read/SKILL.md
 │   ├── install-audio-speak/SKILL.md
 │   ├── install-credentials/SKILL.md
-│   └── install-stock/SKILL.md
+│   ├── install-stock/SKILL.md
+│   ├── install-deepseek-balance/SKILL.md
+│   └── install-deepseek-recharge/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -62,6 +66,8 @@ dsh-plugins/
 | [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
 | [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值，set 可挂 approval 闸门 | 无 | `install-credentials` |
 | [stock](plugins/stock-dsh-plugin/README.md) | A股行情与自选股：`stock_quote`/`stock_kline`/`stock_indicators`（MA/MACD/RSI/KDJ/ATR）/`stock_market_overview`/`watchlist_*`/`stock_daily_collect`/`stock_report`，腾讯公开接口、零密钥 | 无 | `install-stock` |
+| [deepseek-balance](plugins/deepseek-balance-dsh-plugin/README.md) | DeepSeek 余额查询：`deepseek_balance` 走官方 `GET /user/balance` 接口返回总/充值/赠送余额 | `DEEPSEEK_API_KEY` | `install-deepseek-balance` |
+| [deepseek-recharge](plugins/deepseek-recharge-dsh-plugin/README.md) | DeepSeek 充值辅助：`deepseek_recharge` 查余额作上下文并打开平台充值页（官方无充值 API，网页端支付） | `DEEPSEEK_API_KEY` | `install-deepseek-recharge` |
 
 ## 环境要求（目标电脑）
 
