@@ -55,6 +55,7 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   #
 | `install-video-read` | `plugins/video-read-dsh-plugin` | read_video 视频理解工具（需 MIMO_API_KEY） |
 | `install-audio-read` | `plugins/audio-read-dsh-plugin` | transcribe_audio 转写 + understand_audio 理解（需 MIMO_API_KEY） |
 | `install-audio-speak` | `plugins/audio-speak-dsh-plugin` | speak_text 语音合成工具（需 MIMO_API_KEY） |
+| `install-credentials` | `plugins/credentials-dsh-plugin` | 对话里管理凭证：list/verify/set/unset（无额外依赖） |
 
 ## 新增技能的约定
 

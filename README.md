@@ -14,7 +14,8 @@ dsh-plugins/
 │   ├── unity-mcp-dsh-plugin/
 │   ├── video-read-dsh-plugin/
 │   ├── audio-read-dsh-plugin/
-│   └── audio-speak-dsh-plugin/
+│   ├── audio-speak-dsh-plugin/
+│   └── credentials-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
@@ -22,7 +23,8 @@ dsh-plugins/
 │   ├── install-unity-mcp/SKILL.md
 │   ├── install-video-read/SKILL.md
 │   ├── install-audio-read/SKILL.md
-│   └── install-audio-speak/SKILL.md
+│   ├── install-audio-speak/SKILL.md
+│   └── install-credentials/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -56,6 +58,7 @@ dsh-plugins/
 | [video-read](plugins/video-read-dsh-plugin/README.md) | 视频理解工具：调用 `read_video`（MiMo `mimo-v2.5` 全模态）理解视频，支持本地路径（mp4/mov/avi/wmv）或公网 URL | `MIMO_API_KEY` | `install-video-read` |
 | [audio-read](plugins/audio-read-dsh-plugin/README.md) | 音频读取工具：`transcribe_audio` 语音转写（`mimo-v2.5-asr`，mp3/wav）+ `understand_audio` 音频理解（`mimo-v2.5`，mp3/wav/flac/m4a/ogg） | `MIMO_API_KEY` | `install-audio-read` |
 | [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
+| [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值，set 可挂 approval 闸门 | 无 | `install-credentials` |
 
 ## 环境要求（目标电脑）
 
