@@ -11,12 +11,18 @@
 dsh-plugins/
 ├── plugins/                    插件安装包（自包含，可直接独立安装）
 │   ├── describe-image-dsh-plugin/
-│   └── unity-mcp-dsh-plugin/
+│   ├── unity-mcp-dsh-plugin/
+│   ├── video-read-dsh-plugin/
+│   ├── audio-read-dsh-plugin/
+│   └── audio-speak-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
 │   ├── install-describe-image/SKILL.md
-│   └── install-unity-mcp/SKILL.md
+│   ├── install-unity-mcp/SKILL.md
+│   ├── install-video-read/SKILL.md
+│   ├── install-audio-read/SKILL.md
+│   └── install-audio-speak/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -47,6 +53,9 @@ dsh-plugins/
 |------|------|----------|----------|
 | [describe-image](plugins/describe-image-dsh-plugin/README.md) | 图片理解工具：主模型保持 text-only，调用 `describe_image` 经 OpenAI 兼容 vision 端点（默认 Xiaomi MiMo `mimo-v2.5`）读图 | `MIMO_API_KEY`（或自建端点） | `install-describe-image` |
 | [unity-mcp](plugins/unity-mcp-dsh-plugin/README.md) | MCP for Unity 桥：模型获得 `mcp__unity__*`（48 个 Unity Editor 工具），自带监督器自动拉起服务器 | Unity 项目 + MCP for Unity 客户端包 + uv/uvx | `install-unity-mcp` |
+| [video-read](plugins/video-read-dsh-plugin/README.md) | 视频理解工具：调用 `read_video`（MiMo `mimo-v2.5` 全模态）理解视频，支持本地路径（mp4/mov/avi/wmv）或公网 URL | `MIMO_API_KEY` | `install-video-read` |
+| [audio-read](plugins/audio-read-dsh-plugin/README.md) | 音频读取工具：`transcribe_audio` 语音转写（`mimo-v2.5-asr`，mp3/wav）+ `understand_audio` 音频理解（`mimo-v2.5`，mp3/wav/flac/m4a/ogg） | `MIMO_API_KEY` | `install-audio-read` |
+| [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
 
 ## 环境要求（目标电脑）
 
