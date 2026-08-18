@@ -437,7 +437,33 @@ export function apply(ctx, config) {
               floatMv: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
               volumeRatio: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
               amplitude: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+              limitUp: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+              limitDown: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
               time: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+              bid: {
+                type: 'array',
+                required: true,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                    volume: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                  },
+                },
+              },
+              ask: {
+                type: 'array',
+                required: true,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                    volume: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                  },
+                },
+              },
             },
           },
         },
@@ -757,7 +783,9 @@ export function apply(ctx, config) {
               type: 'object',
               additionalProperties: false,
               properties: {
+                symbol: { type: 'string', required: true },
                 name: { type: 'string', required: true },
+                price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
                 changePct: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
               },
             },
