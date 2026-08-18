@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `path` | 二选一 | 本地音频绝对路径（仅 mp3/wav，≤ 37.5 MB） |
-| `url` | 二选一 | 公网 http(s) 音频地址（≤ 100 MB，平台限制） |
+| `url` | 二选一 | 公网 http(s) 音频地址（ASR 端点只收 base64，工具会抓取后本地编码，≤ 37.5 MB） |
 | `language` | 否 | `auto`（默认）/ `zh` / `en` |
 
 返回 `transcript`（识别文本）与可选 `durationSeconds`（音频时长）。
@@ -102,7 +102,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ## 已知边界
 
 - `transcribe_audio` 平台限制仅 mp3/wav；`understand_audio` 支持 mp3/wav/flac/m4a/ogg
-- 本地文件走 base64 输入，上限 50 MB 编码串（≈37.5 MB 文件）；超大音频用 URL
+- base64 输入上限 50 MB 编码串（≈37.5 MB 文件）；`transcribe_audio` 的 URL 会抓取
+  后本地编码，同样受 37.5 MB 限制；`understand_audio` 的 URL 直传（平台 ≤ 100 MB）
 - 参考官方文档：
   [Speech Recognition](https://mimo.mi.com/docs/en-US/api/audio/Speech-Recognition) ·
   [Audio Understanding](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/multimodal-understanding/audio-understanding)

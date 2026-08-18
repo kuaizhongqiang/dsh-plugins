@@ -88,8 +88,9 @@ not found`，回到步骤 1 检查 dsh 是否装好、`dsh web` 是否初始化�
 
 - `transcribe_audio` 报 `unsupported audio format`：ASR 平台限制仅
   mp3/wav；需要 flac/m4a/ogg 用 `understand_audio`
-- 报 `over the ...-byte limit`：本地文件走 base64 输入，上限 50 MB 编码串
-  （≈37.5 MB 文件）；更大的音频用公网 URL（≤ 100 MB）
+- 报 `over the ...-byte limit`：base64 输入上限 50 MB 编码串（≈37.5 MB 文件）；
+  `transcribe_audio` 的 URL 会抓取后本地编码，同样受 37.5 MB 限制；
+  `understand_audio` 的 URL 直传（平台 ≤ 100 MB）
 - 转写结果为空或语言不对：显式指定 `language`（zh / en）再试
 
 ## 7. 卸载

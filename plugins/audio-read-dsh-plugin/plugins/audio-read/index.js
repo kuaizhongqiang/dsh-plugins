@@ -63,6 +63,35 @@ function mediaTypeForPath(path) {
   return AUDIO_MEDIA_TYPES[extname(path).toLowerCase().replace('.', '')]
 }
 
+/**
+ * Fetch a public audio URL and return it as a base64 data URI. The dedicated
+ * ASR endpoint only accepts base64 data (unlike the full-modal model, which
+ * also accepts URLs directly), so URL input must be downloaded and encoded
+ * locally. Enforces the same byte cap as local-file input.
+ * @returns `{ data, label }` — `data` is the data URI for `input_audio`.
+ */
+async function fetchAudioToDataUri(url, maxBytes) {
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok) {
+    throw new Error(`audio tools: failed to fetch ${JSON.stringify(url)}: ${response.status}`)
+  }
+  const declared = Number(response.headers.get('content-length') ?? '0')
+  if (declared > maxBytes) {
+    throw new Error(`audio tools: ${JSON.stringify(url)} is ${declared} bytes, over the ${maxBytes}-byte limit for base64 input`)
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`audio tools: ${JSON.stringify(url)} is ${bytes.byteLength} bytes, over the ${maxBytes}-byte limit for base64 input`)
+  }
+  const contentType = response.headers.get('content-type') ?? ''
+  const mediaType = (
+    ['audio/mpeg', 'audio/mp3', 'audio/wav'].find((candidate) => contentType.toLowerCase().includes(candidate))
+    ?? mediaTypeForPath(new URL(url).pathname)
+    ?? 'audio/mpeg'
+  )
+  return { data: `data:${mediaType};base64,${Buffer.from(bytes).toString('base64')}`, label: url }
+}
+
 /** Configuration for the audio backends the tools call. */
 export const Config = z.object({
   baseURL: z.string(),
@@ -166,7 +195,7 @@ export function apply(ctx, config) {
       + 'asks what was said in an audio recording.',
     parameters: {
       path: { type: 'string', description: 'Absolute path of a local audio file (mp3/wav). Exactly one of path and url is required.' },
-      url: { type: 'string', description: 'Public http(s) URL of an audio file (max 100 MB, platform-enforced). Exactly one of path and url is required.' },
+      url: { type: 'string', description: 'Public http(s) URL of an mp3/wav file (fetched locally, max ~37.5 MB). Exactly one of path and url is required.' },
       language: { type: 'string', description: "Recognition language: 'auto' (detect), 'zh' (Chinese), or 'en' (English). Defaults to 'auto'." },
     },
     output: {
@@ -191,8 +220,14 @@ export function apply(ctx, config) {
       if (args.language !== undefined && !['auto', 'zh', 'en'].includes(args.language)) {
         throw new Error("transcribe_audio: language must be 'auto', 'zh', or 'en'")
       }
-      // ASR only accepts mp3/wav (platform restriction).
-      const source = await resolveAudioSource(args, maxBytes, { mp3: true, wav: true })
+      if (!/^https?:\/\//i.test(args.url ?? '')) {
+        throw new Error('transcribe_audio: url must be a public http(s) URL')
+      }
+      // The ASR endpoint only accepts base64 data (mp3/wav), so a public URL
+      // is fetched and encoded locally; a local file is read and encoded.
+      const source = args.url !== undefined
+        ? await fetchAudioToDataUri(args.url, maxBytes)
+        : await resolveAudioSource(args, maxBytes, { mp3: true, wav: true })
       const apiKey = await resolveApiKey()
       return withTimeout(async (signal) => {
         const parsed = await callChat({
