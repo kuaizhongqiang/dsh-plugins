@@ -83,7 +83,7 @@ not found`，回到步骤 1 检查 dsh 是否装好、`dsh web` 是否初始化�
 ## 6. 排查
 
 - 报 `unknown voice`：音色必须是内置清单之一（mimo_default / 冰糖 / 茉莉 /
-  苏打 / 白榆 / Mia / Chloe / Milo / Dean）
+  苏打 / 白桦 / Mia / Chloe / Milo / Dean）
 - 报 `format must be one of wav/mp3`：本工具只落盘 wav/mp3（带文件头可
   直接播放）；pcm16 裸流未开放
 - 报 `extension does not match format`：`output_path` 的扩展名要与

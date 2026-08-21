@@ -46,7 +46,7 @@ export const DEFAULT_VOICE = 'mimo_default'
 export const OUTPUT_FORMATS = ['wav', 'mp3']
 /** Built-in voices documented by the platform (voice IDs equal their names). */
 export const BUILTIN_VOICES = [
-  'mimo_default', '冰糖', '茉莉', '苏打', '白榆',
+  'mimo_default', '冰糖', '茉莉', '苏打', '白桦',
   'Mia', 'Chloe', 'Milo', 'Dean',
 ]
 
@@ -161,7 +161,7 @@ export function apply(ctx, config) {
       voice: {
         type: 'string',
         description: "Voice ID: 'mimo_default' (default), or a built-in voice: 冰糖 (female, zh), 茉莉 (female, zh), "
-          + '苏打 (male, zh), 白榆 (male, zh), Mia (female, en), Chloe (female, en), Milo (male, en), Dean (male, en).',
+          + '苏打 (male, zh), 白桦 (male, zh), Mia (female, en), Chloe (female, en), Milo (male, en), Dean (male, en).',
       },
       format: { type: 'string', description: "Output audio format: 'wav' (default) or 'mp3'." },
       style: { type: 'string', description: 'Optional tone/style instructions for the delivery (e.g. "bright and upbeat, fast pace"); ignored when empty.' },

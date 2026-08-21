@@ -70,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | `冰糖` | 中文 | 女 |
 | `茉莉` | 中文 | 女 |
 | `苏打` | 中文 | 男 |
-| `白榆` | 中文 | 男 |
+| `白桦` | 中文 | 男 |
 | `Mia` | 英文 | 女 |
 | `Chloe` | 英文 | 女 |
 | `Milo` | 英文 | 男 |
