@@ -18,7 +18,8 @@ dsh-plugins/
 │   ├── credentials-dsh-plugin/
 │   ├── stock-dsh-plugin/
 │   ├── deepseek-balance-dsh-plugin/
-│   └── deepseek-recharge-dsh-plugin/
+│   ├── deepseek-recharge-dsh-plugin/
+│   └── document-read-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
@@ -30,7 +31,8 @@ dsh-plugins/
 │   ├── install-credentials/SKILL.md
 │   ├── install-stock/SKILL.md
 │   ├── install-deepseek-balance/SKILL.md
-│   └── install-deepseek-recharge/SKILL.md
+│   ├── install-deepseek-recharge/SKILL.md
+│   └── install-document-read/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -68,6 +70,7 @@ dsh-plugins/
 | [stock](plugins/stock-dsh-plugin/README.md) | A股行情与自选股：`stock_quote`/`stock_kline`/`stock_indicators`（MA/MACD/RSI/KDJ/ATR）/`stock_market_overview`/`watchlist_*`/`stock_daily_collect`/`stock_report`，腾讯公开接口、零密钥 | 无 | `install-stock` |
 | [deepseek-balance](plugins/deepseek-balance-dsh-plugin/README.md) | DeepSeek 余额查询：`deepseek_balance` 走官方 `GET /user/balance` 接口返回总/充值/赠送余额 | `DEEPSEEK_API_KEY` | `install-deepseek-balance` |
 | [deepseek-recharge](plugins/deepseek-recharge-dsh-plugin/README.md) | DeepSeek 充值辅助：`deepseek_recharge` 查余额作上下文并打开平台充值页（官方无充值 API，网页端支付） | `DEEPSEEK_API_KEY` | `install-deepseek-recharge` |
+| [document-read](plugins/document-read-dsh-plugin/README.md) | 文档理解工具：`read_document` 综合读取 Word `.docx/.docm` / Excel `.xlsx` / PDF `.pdf`（本地路径或 URL），提取文字 + 内嵌图片逐张 vision 描述（默认 MiMo），解析由 Python python-docx/openpyxl/PyMuPDF 完成 | `MIMO_API_KEY` + Python 3.9+ 与三个解析库 | `install-document-read` |
 
 ## 环境要求（目标电脑）
 

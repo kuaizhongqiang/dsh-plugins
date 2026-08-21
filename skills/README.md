@@ -59,6 +59,7 @@ powershell -ExecutionPolicy Bypass -File .\skills\install-skills.ps1 -DryRun   #
 | `install-stock` | `plugins/stock-dsh-plugin` | A股行情/技术指标/自选股/每日收集/报告（腾讯公开接口，无依赖） |
 | `install-deepseek-balance` | `plugins/deepseek-balance-dsh-plugin` | DeepSeek 余额查询（需 DEEPSEEK_API_KEY） |
 | `install-deepseek-recharge` | `plugins/deepseek-recharge-dsh-plugin` | DeepSeek 充值辅助：余额上下文 + 跳转充值页（需 DEEPSEEK_API_KEY） |
+| `install-document-read` | `plugins/document-read-dsh-plugin` | read_document 文档理解：Word/Excel/PDF 文字 + 内嵌图片 vision 描述（需 Python 解析库 + MIMO_API_KEY） |
 
 ## 新增技能的约定
 
