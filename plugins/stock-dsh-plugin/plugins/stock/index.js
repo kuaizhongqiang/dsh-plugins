@@ -4,17 +4,24 @@
  * `watchlist_add`, `watchlist_remove`, `watchlist_list`,
  * `stock_daily_collect`, and `stock_report`.
  *
+ * Sentiment & advice layer:
+ * `sentiment_sources` (whitelist), `sentiment_pick` (≤5 picks/day),
+ * `sentiment_record` / `sentiment_list` (persisted conclusions),
+ * `advice_calc` (trigger/target/stop/position), and
+ * `position_record` / `position_list` / `position_update` (position advice log).
+ *
  * Data comes exclusively from Tencent's public quote endpoints (no API key):
  * - real-time quotes:  `https://qt.gtimg.cn/q=<symbol>`  (GBK-encoded)
  * - daily K-line (前复权): `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get`
  *
  * The main conversation model stays text-only: these tools fetch and compute
  * numbers, the model reads them and does the interpretation (trends, signals,
- * report prose). All technical indicators (MA/volume-MA/MACD/RSI/KDJ/ATR) are
- * computed in-process with zero dependencies.
+ * sentiment contradiction analysis, advice prose). All technical indicators
+ * (MA/volume-MA/MACD/RSI/KDJ/ATR) are computed in-process with zero dependencies.
  *
  * User data lives under `%DSH_HOME%\stock\`:
  *   watchlist.json · kline-cache.json · daily/YYYY-MM-DD.json · reports/*.md
+ *   sentiment.json · positions.json
  *
  * This plugin is self-contained for the npm dsh install: it depends only on
  * packages the installed CLI already provides (dsh-tools, schemastery).
@@ -49,6 +56,45 @@ const INDICES = [
   { symbol: 'sh000300', name: '沪深300' },
 ]
 
+/**
+ * 权威信息源白名单（舆情分析只采信这些"大而靠谱"的网站）。
+ * 分层：官方（政府/部委/官媒/交易所公告）+ 主流财经媒体。
+ */
+const SENTIMENT_SOURCES = {
+  官方: [
+    { name: '中国政府网', domain: 'gov.cn' },
+    { name: '新华社', domain: 'xinhuanet.com' },
+    { name: '人民日报', domain: 'people.com.cn' },
+    { name: '央视新闻', domain: 'cctv.com' },
+    { name: '发改委', domain: 'ndrc.gov.cn' },
+    { name: '工信部', domain: 'miit.gov.cn' },
+    { name: '国家能源局', domain: 'nea.gov.cn' },
+    { name: '国务院国资委', domain: 'sasac.gov.cn' },
+    { name: '证监会', domain: 'csrc.gov.cn' },
+    { name: '上交所', domain: 'sse.com.cn' },
+    { name: '深交所', domain: 'szse.cn' },
+    { name: '巨潮资讯(交易所公告)', domain: 'cninfo.com.cn' },
+  ],
+  财经: [
+    { name: '财联社', domain: 'cls.cn' },
+    { name: '证券时报', domain: 'stcn.com' },
+    { name: '上海证券报', domain: 'cnstock.com' },
+    { name: '中国证券报', domain: 'cs.com.cn' },
+    { name: '证券日报', domain: 'zqrb.cn' },
+    { name: '第一财经', domain: 'yicai.com' },
+    { name: '新华财经', domain: 'cnfin.com' },
+  ],
+}
+
+/** 舆情记录文件名（%DSH_HOME%\stock\sentiment.json）。 */
+const SENTIMENT_FILE = 'sentiment.json'
+/** 仓位建议记录文件名（%DSH_HOME%\stock\positions.json）。 */
+const POSITIONS_FILE = 'positions.json'
+/** 每日舆情调查上限（默认不超过 5 只）。 */
+const DEFAULT_MAX_PICKS = 5
+/** 用户风险偏好参考值：0 最保守，10 最激进（默认 6.5）。 */
+const DEFAULT_RISK_PROFILE = 6.5
+
 /** Configuration for the plugin. All optional — see apply(). */
 export const Config = z.object({
   /** Trading days of K-line cached per symbol. */
@@ -72,6 +118,11 @@ function num(value) {
 /** Round to 3 decimals for display. */
 function round(value) {
   return Math.round(value * 1000) / 1000
+}
+
+/** Round to 2 decimals (A-share minimum tick). */
+function round2(value) {
+  return Math.round(value * 100) / 100
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -190,6 +241,52 @@ async function fetchKline(symbol, days, timeoutMs) {
   }))
   if (bars.length === 0) throw new Error(`stock tools: no K-line bars for ${symbol}`)
   return { symbol, name: data.qt?.[symbol]?.[1] ?? symbol, bars }
+}
+
+/**
+ * Fetch quotes for many symbols in ONE request (Tencent accepts `q=a,b,c`).
+ * Reuses the same GBK parsing as fetchQuote.
+ * @returns array of parsed quote objects (same shape as fetchQuote).
+ */
+async function fetchQuotes(symbols, timeoutMs) {
+  const url = QUOTE_URL + symbols.join(',')
+  const response = await throttledFetch(url, timeoutMs)
+  if (!response.ok) throw new Error(`stock tools: quote endpoint answered ${response.status} for batch`)
+  const text = decodeGbk(new Uint8Array(await response.arrayBuffer()))
+  const parsed = []
+  for (const line of text.split('\n')) {
+    const match = /v_(\w+)="([^"]*)"/.exec(line)
+    if (match === null) continue
+    const symbol = match[1]
+    const f = match[2].split('~')
+    if (f.length < 40) continue
+    const field = (i) => (f[i] === undefined || f[i] === '' ? null : f[i])
+    parsed.push({
+      symbol,
+      code: field(2),
+      name: field(1),
+      price: num(field(3)),
+      prevClose: num(field(4)),
+      open: num(field(5)),
+      volume: num(field(6)),
+      time: field(30),
+      change: num(field(31)),
+      changePct: num(field(32)),
+      high: num(field(33)),
+      low: num(field(34)),
+      amount: num(field(37)),
+      turnover: num(field(38)),
+      peTtm: num(field(39)),
+      amplitude: num(field(43)),
+      floatMv: num(field(44)),
+      totalMv: num(field(45)),
+      pb: num(field(46)),
+      limitUp: num(field(47)),
+      limitDown: num(field(48)),
+      volumeRatio: num(field(49)),
+    })
+  }
+  return parsed
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +480,223 @@ async function klineWithCache(root, symbol, days, timeoutMs) {
 /** Quote for a symbol with a tiny staleness shield (quotes are cheap; no cache). */
 async function quoteOf(symbol, timeoutMs) {
   return fetchQuote(symbol, timeoutMs)
+}
+
+// ---------------------------------------------------------------------------
+// 舆情挑选打分（异动 + 技术信号）
+// ---------------------------------------------------------------------------
+
+/**
+ * Score one stock for "deserves sentiment research today".
+ * Dimensions: price action (moves/limit/volume/amplitude) + technical signals
+ * (RSI extremes, KDJ J extremes, MA breakdown/breakout, MACD).
+ * @returns `{ score, reasons }` with human-readable Chinese reason tags.
+ */
+function scoreForSentiment(quote, indicators) {
+  let score = 0
+  const reasons = []
+  const pct = quote.changePct ?? 0
+  const price = quote.price
+  const ma = indicators.ma
+  const kdj = indicators.kdj
+  const rsi6 = indicators.rsi?.rsi6
+
+  // --- 异动维度 -----------------------------------------------------------
+  const absPct = Math.abs(pct)
+  if (absPct >= 9.8) { score += 4; reasons.push('涨跌停') }
+  else if (absPct >= 5) { score += 3; reasons.push(`异动 ${pct > 0 ? '+' : ''}${pct}%`) }
+  else if (absPct >= 3) { score += 1.5; reasons.push(`明显波动 ${pct > 0 ? '+' : ''}${pct}%`) }
+  if (quote.limitUp !== null && price !== null && price >= quote.limitUp - 0.01) { score += 1; reasons.push('封涨停') }
+  if (quote.limitDown !== null && price !== null && price <= quote.limitDown + 0.01) { score += 1; reasons.push('封跌停') }
+  const vr = quote.volumeRatio ?? 0
+  if (vr >= 3) { score += 2; reasons.push(`放量 量比${vr}`) }
+  else if (vr >= 1.5) { score += 1; reasons.push(`量比${vr}`) }
+  const amp = quote.amplitude ?? 0
+  if (amp >= 8) { score += 1.5; reasons.push(`巨震 振幅${amp}%`) }
+  else if (amp >= 5) { score += 0.5; reasons.push(`振幅${amp}%`) }
+
+  // --- 技术信号维度 -------------------------------------------------------
+  if (rsi6 !== null && rsi6 !== undefined) {
+    if (rsi6 <= 15) { score += 2.5; reasons.push('深度超卖 RSI6=' + rsi6) }
+    else if (rsi6 <= 25) { score += 1.5; reasons.push('超卖 RSI6=' + rsi6) }
+    else if (rsi6 >= 85) { score += 2.5; reasons.push('深度超买 RSI6=' + rsi6) }
+    else if (rsi6 >= 75) { score += 1.5; reasons.push('超买 RSI6=' + rsi6) }
+  }
+  if (kdj && kdj.j !== null && kdj.j !== undefined) {
+    if (kdj.j <= 0) { score += 2; reasons.push('KDJ J=' + kdj.j + ' 极端超卖') }
+    else if (kdj.j >= 100) { score += 2; reasons.push('KDJ J=' + kdj.j + ' 极端超买') }
+  }
+  const ma5 = ma?.ma5, ma10 = ma?.ma10, ma20 = ma?.ma20, ma60 = ma?.ma60
+  if (price !== null && ma20 !== null && ma60 !== null) {
+    if (price < ma60 && ma5 < ma20 && ma10 < ma20) { score += 2; reasons.push('均线空头破位') }
+    if (price > ma60 && ma5 > ma20 && ma10 > ma20) { score += 1.5; reasons.push('均线多头突破') }
+  }
+  const macd = indicators.macd
+  if (macd && macd.dif !== null && macd.dea !== null && macd.hist !== null) {
+    if (macd.hist < 0 && macd.dif < macd.dea) { score += 0.5; reasons.push('MACD死叉') }
+    if (macd.hist > 0 && macd.dif > macd.dea) { score += 0.5; reasons.push('MACD金叉') }
+  }
+  return { score: round(score), reasons: reasons.slice(0, 6) }
+}
+
+/**
+ * Pick the watchlist stocks that deserve sentiment research today.
+ * @returns ranked candidates (max `limit`).
+ */
+async function pickSentimentCandidates(root, codes, limit, timeoutMs) {
+  if (codes.length === 0) return []
+  const quotes = await fetchQuotes(codes, timeoutMs)
+  const bySymbol = new Map(quotes.map((q) => [q.symbol, q]))
+  const scored = []
+  for (const symbol of codes) {
+    const quote = bySymbol.get(symbol)
+    if (quote === undefined) continue
+    let indicators = null
+    try {
+      const kline = await klineWithCache(root, symbol, DEFAULT_KLINE_DAYS, timeoutMs)
+      indicators = computeIndicators(kline.bars)
+    } catch {
+      indicators = { ma: {}, macd: {}, kdj: {}, rsi: {} }
+    }
+    const { score, reasons } = scoreForSentiment(quote, indicators)
+    scored.push({
+      symbol, name: quote.name, price: quote.price, changePct: quote.changePct,
+      amount: quote.amount, volumeRatio: quote.volumeRatio, score, reasons,
+    })
+  }
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, limit)
+}
+
+// ---------------------------------------------------------------------------
+// 建议价格计算（触发价 / 目标价 / 止损价 / 仓位比例）
+// ---------------------------------------------------------------------------
+
+/**
+ * 仓位档位（按 ATR 波动率 + 风险偏好定档）。
+ * @returns suggested position percentage for a fresh buy.
+ */
+function positionPctFor(atrPct, riskProfile) {
+  let pct
+  if (atrPct < 1.5) pct = 40
+  else if (atrPct < 2.5) pct = 30
+  else if (atrPct < 4) pct = 20
+  else if (atrPct < 6) pct = 15
+  else pct = 10
+  // 风险偏好 6.5 为基准；每偏离 1 分 ±8%
+  const factor = 1 + (riskProfile - DEFAULT_RISK_PROFILE) * 0.08
+  pct = Math.round(pct * factor / 5) * 5
+  return Math.max(5, Math.min(50, pct))
+}
+
+/**
+ * 计算一条交易建议的价格/仓位。
+ * @param quote - parsed quote
+ * @param indicators - computed indicators
+ * @param kline - { bars }
+ * @param action - 'buy' | 'sell' | 'auto'
+ * @param riskProfile - 0..10
+ */
+function calcAdvice(quote, indicators, kline, action, riskProfile) {
+  const price = quote.price
+  const bars = kline.bars
+  const closes = bars.map((b) => b.close)
+  const last = bars.at(-1)
+  const atrV = indicators.atr14 ?? price * 0.02
+  const atrPct = price > 0 ? (atrV / price) * 100 : 3
+  const ma20 = indicators.ma?.ma20
+  const ma60 = indicators.ma?.ma60
+  const rsi6 = indicators.rsi?.rsi6
+  const rsi12 = indicators.rsi?.rsi12
+
+  // 支撑/压力：近期 20 根 K 线的低点/高点，结合 MA20/MA60
+  const recent = bars.slice(-20)
+  const low20 = Math.min(...recent.map((b) => b.low))
+  const high20 = Math.max(...recent.map((b) => b.high))
+  const supports = [low20, ma20, ma60].filter((v) => v !== null && v !== undefined && v < price)
+  const resistances = [high20, ma20, ma60].filter((v) => v !== null && v !== undefined && v > price)
+  const support = supports.length > 0 ? Math.max(...supports) : price * 0.95
+  const resistance = resistances.length > 0 ? Math.min(...resistances) : price * 1.05
+
+  // 自动判断动作：RSI 与均线位置
+  let act = action
+  if (act === 'auto' || act === undefined) {
+    if (rsi6 !== null && rsi6 !== undefined && rsi6 <= 25) act = 'buy'
+    else if (rsi6 !== null && rsi6 !== undefined && rsi6 >= 75) act = 'sell'
+    else if (price < ma60) act = 'sell'
+    else act = 'buy'
+  }
+  if (act !== 'buy' && act !== 'sell') act = 'buy'
+
+  let trigger, target, stop, positionPct, direction
+  if (act === 'buy') {
+    direction = '买入'
+    // 触发价：回调至支撑/MA 附近（取现价与支撑之间较近的可成交价位）
+    const pullback = price - 0.6 * atrV
+    trigger = round2(Math.max(pullback, Math.min(support, price)))
+    // 目标价：按风险偏好定 R 倍数（6.5 → 约 2.2R）
+    const rr = 1.4 + riskProfile * 0.12
+    target = round2(trigger + rr * (price - trigger) + 0.5 * atrV)
+    stop = round2(trigger - 1.5 * atrV)
+    positionPct = positionPctFor(atrPct, riskProfile)
+  } else {
+    direction = '卖出'
+    // 触发价：反弹至压力/MA 附近
+    const bounce = price + 0.6 * atrV
+    trigger = round2(Math.min(bounce, Math.max(resistance, price)))
+    target = round2(Math.max(support, trigger - 1.5 * atrV))
+    stop = round2(trigger + 1.2 * atrV) // 卖出建议的"止损"= 卖飞回补位
+    positionPct = Math.min(50, Math.max(10, Math.round(atrPct * 8 / 5) * 5))
+  }
+
+  return {
+    symbol: quote.symbol,
+    name: quote.name,
+    date: last?.date,
+    action: act,
+    actionLabel: direction,
+    price,
+    trigger,
+    target,
+    stop,
+    positionPct,
+    atr: atrV,
+    atrPct: round(atrPct),
+    support: round2(support),
+    resistance: round2(resistance),
+    rsi6,
+    basis: `ATR=${round(atrV)}(${round(atrPct)}%) 支撑=${round2(support)} 压力=${round2(resistance)}`,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 仓位建议存储（positions.json）
+// ---------------------------------------------------------------------------
+
+/** Load the positions document. */
+async function loadPositions(root) {
+  const doc = await readJson(join(root, POSITIONS_FILE))
+  if (doc === null || !Array.isArray(doc.positions)) return { version: 1, positions: [], updatedAt: null }
+  return doc
+}
+
+/** Save the positions document. */
+async function savePositions(root, doc) {
+  doc.updatedAt = new Date().toISOString()
+  await writeJson(join(root, POSITIONS_FILE), doc)
+}
+
+/** Load the sentiment records document. */
+async function loadSentiment(root) {
+  const doc = await readJson(join(root, SENTIMENT_FILE))
+  if (doc === null || !Array.isArray(doc.records)) return { version: 1, records: [], updatedAt: null }
+  return doc
+}
+
+/** Save the sentiment records document. */
+async function saveSentiment(root, doc) {
+  doc.updatedAt = new Date().toISOString()
+  await writeJson(join(root, SENTIMENT_FILE), doc)
 }
 
 // ---------------------------------------------------------------------------
@@ -919,6 +1233,447 @@ export function apply(ctx, config) {
       return { path: outputPath, date, rows }
     },
     presentCall: args => ({ card: 'generic', title: 'Stock report', kind: 'other', rawInput: args }),
+  }))
+
+  // --- sentiment_sources ---------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'sentiment_sources',
+    description: '权威信息源白名单（舆情分析只采信这些网站）：官方（政府网/部委/新华社/人民日报/央视/交易所公告）'
+      + '与主流财经媒体（财联社/证券时报/上证报/中证报等）。舆情搜索时必须只采用本清单中的来源。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sources: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              官方: {
+                type: 'array', required: true,
+                items: {
+                  type: 'object', additionalProperties: false,
+                  properties: {
+                    name: { type: 'string', required: true },
+                    domain: { type: 'string', required: true },
+                  },
+                },
+              },
+              财经: {
+                type: 'array', required: true,
+                items: {
+                  type: 'object', additionalProperties: false,
+                  properties: {
+                    name: { type: 'string', required: true },
+                    domain: { type: 'string', required: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: Object.entries(value.sources)
+          .map(([tier, list]) => `【${tier}】\n` + list.map((s) => `- ${s.name} (${s.domain})`).join('\n'))
+          .join('\n'),
+      }],
+    },
+    async execute() {
+      return { sources: SENTIMENT_SOURCES }
+    },
+    presentCall: () => ({ card: 'generic', title: 'Sentiment whitelist', kind: 'read' }),
+  }))
+
+  // --- sentiment_pick ------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'sentiment_pick',
+    description: '从自选股客观数据中挑选当日最需要做舆情调查的股票（默认最多 5 只，原则每日不超过 5 只）。'
+      + '打分维度：当日异动（涨跌停/大幅波动/量比/振幅）+ 技术信号（RSI 超买超卖/KDJ 极端/均线破位突破/MACD）。'
+      + '返回按分数排序的候选清单及挑选理由，供模型对候选逐一做权威网站舆情搜索。',
+    parameters: {
+      limit: { type: 'integer', description: '最多返回几只（默认 5，不超过 5）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          date: { type: 'string', required: true },
+          candidates: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                symbol: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                changePct: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                amount: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                volumeRatio: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                score: { type: 'number', required: true },
+                reasons: { type: 'array', required: true, items: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `【${value.date} 舆情调查候选】\n` + value.candidates.map((c, i) =>
+          `${i + 1}. ${c.name}(${c.symbol}) 分=${c.score} 现价=${c.price ?? '-'} (${c.changePct ?? '-'}%)\n`
+          + `   理由：${c.reasons.join('、') || '无突出信号'}`).join('\n'),
+      }],
+    },
+    async execute(args) {
+      const doc = await loadWatchlist(dataRoot)
+      if (doc.codes.length === 0) {
+        throw new Error('sentiment_pick: the watchlist is empty; add codes with watchlist_add first')
+      }
+      const limit = args.limit === undefined ? DEFAULT_MAX_PICKS : Math.max(1, Math.min(DEFAULT_MAX_PICKS, args.limit))
+      const candidates = await pickSentimentCandidates(dataRoot, doc.codes, limit, timeoutMs)
+      return { date: today(), candidates }
+    },
+    presentCall: () => ({ card: 'generic', title: 'Pick sentiment candidates', kind: 'other' }),
+  }))
+
+  // --- sentiment_record ----------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'sentiment_record',
+    description: '记录一只股票的舆情分析结论（模型完成权威网站搜索与矛盾分析后调用本工具持久化，防遗忘）。'
+      + '字段含消息摘要、来源、受众定位（老百姓/机构/外资/产业界）、解读方向、矛盾检验命中项、反身性定性、'
+      + '结论倾向（偏多/偏空/中性）与一句话结论。',
+    parameters: {
+      code: { type: 'string', required: true, description: '股票代码，如 600519 或 sh600519。' },
+      date: { type: 'string', description: '分析日期，默认今天 (YYYY-MM-DD)。' },
+      sources: { type: 'array', required: true, description: '采信的权威来源列表（网站名，须来自 sentiment_sources 白名单）。', items: { type: 'string' } },
+      messages: { type: 'array', required: true, description: '消息内容摘要（每条一句）。', items: { type: 'string' } },
+      audience: { type: 'string', description: '受众定位：老百姓 / 机构 / 外资 / 产业界。' },
+      audience_read: { type: 'string', description: '解读方向：反着看 / 警告或通知 / 兑现验证 / 看订单成本。' },
+      conflict_checks: { type: 'array', description: '矛盾检验命中项（动机/反说/利益/措辞/兑现，每条一句）。', items: { type: 'string' } },
+      reflexivity: { type: 'string', description: '反身性定性：政府行为→传导路径→对实际价值的影响（一句话）。' },
+      bias: { type: 'string', description: '结论倾向：偏多 / 偏空 / 中性。' },
+      conclusion: { type: 'string', required: true, description: '一句话结论（含对股价的真实含义）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          symbol: { type: 'string', required: true },
+          name: { type: 'string', required: true },
+          date: { type: 'string', required: true },
+          recordCount: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `已记录 ${value.name}(${value.symbol}) ${value.date} 舆情结论 (id=${value.id})` }],
+    },
+    async execute(args) {
+      const symbol = normalizeCode(args.code)
+      const quote = await quoteOf(symbol, timeoutMs)
+      const doc = await loadSentiment(dataRoot)
+      const id = `s${Date.now()}${Math.floor(Math.random() * 1000)}`
+      const record = {
+        id,
+        date: args.date ?? today(),
+        symbol,
+        name: quote.name ?? symbol,
+        sources: args.sources,
+        messages: args.messages,
+        audience: args.audience ?? null,
+        audience_read: args.audience_read ?? null,
+        conflict_checks: args.conflict_checks ?? [],
+        reflexivity: args.reflexivity ?? null,
+        bias: args.bias ?? '中性',
+        conclusion: args.conclusion,
+        createdAt: new Date().toISOString(),
+      }
+      doc.records.push(record)
+      await saveSentiment(dataRoot, doc)
+      return { id, symbol, name: record.name, date: record.date, recordCount: doc.records.length }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Record sentiment analysis', kind: 'edit', rawInput: args }),
+  }))
+
+  // --- sentiment_list ------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'sentiment_list',
+    description: '列出已记录的舆情分析结论，可按日期过滤（默认全部）。供每日分析前回顾历史舆情，避免重复调查。',
+    parameters: {
+      date: { type: 'string', description: '只列出某天 (YYYY-MM-DD) 的记录；缺省列出全部。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          records: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                date: { type: 'string', required: true },
+                symbol: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                sources: { type: 'array', required: true, items: { type: 'string' } },
+                messages: { type: 'array', required: true, items: { type: 'string' } },
+                audience: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                audience_read: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                conflict_checks: { type: 'array', required: true, items: { type: 'string' } },
+                reflexivity: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                bias: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                conclusion: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.records.length === 0 ? '(无舆情记录)'
+          : value.records.map((r) => `[${r.date}] ${r.name}(${r.symbol}) 倾向=${r.bias}\n  结论：${r.conclusion}`).join('\n'),
+      }],
+    },
+    async execute(args) {
+      const doc = await loadSentiment(dataRoot)
+      const records = args.date ? doc.records.filter((r) => r.date === args.date) : doc.records
+      return { records: records.slice().reverse() }
+    },
+    presentCall: () => ({ card: 'generic', title: 'List sentiment records', kind: 'read' }),
+  }))
+
+  // --- advice_calc ---------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'advice_calc',
+    description: '按技术位计算一条交易建议的价格与仓位：触发价/目标价/止损价/仓位比例。'
+      + '基于 ATR 波动率、均线、近期支撑压力与风险偏好（0 最保守~10 最激进，默认 6.5）自动定档。'
+      + 'action 可指定 buy/sell，或 auto 由技术面自动判断。返回数值供模型整合进最终建议（模型可酌情微调）。',
+    parameters: {
+      code: { type: 'string', required: true, description: '股票代码，如 600519 或 sh600519。' },
+      action: { type: 'string', description: 'buy=买入 / sell=卖出 / auto=按技术面自动（默认 auto）。' },
+      risk_profile: { type: 'number', description: '风险偏好 0~10（默认 6.5）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          symbol: { type: 'string', required: true },
+          name: { type: 'string', required: true },
+          date: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+          action: { type: 'string', required: true },
+          actionLabel: { type: 'string', required: true },
+          price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+          trigger: { type: 'number', required: true },
+          target: { type: 'number', required: true },
+          stop: { type: 'number', required: true },
+          positionPct: { type: 'integer', required: true },
+          atr: { type: 'number', required: true },
+          atrPct: { type: 'number', required: true },
+          support: { type: 'number', required: true },
+          resistance: { type: 'number', required: true },
+          rsi6: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+          basis: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `${value.name}(${value.symbol}) ${value.actionLabel}建议\n`
+          + `现价 ${value.price ?? '-'}（数据日 ${value.date ?? '-'}）\n`
+          + `建议${value.actionLabel}价 ${value.trigger} ｜ 目标价 ${value.target} ｜ 止损价 ${value.stop}\n`
+          + `仓位建议 ${value.positionPct}%\n依据：${value.basis}`,
+      }],
+    },
+    async execute(args) {
+      const symbol = normalizeCode(args.code)
+      const quote = await quoteOf(symbol, timeoutMs)
+      const kline = await klineWithCache(dataRoot, symbol, klineDays, timeoutMs)
+      const indicators = computeIndicators(kline.bars)
+      const risk = args.risk_profile ?? DEFAULT_RISK_PROFILE
+      const advice = calcAdvice(quote, indicators, kline, args.action ?? 'auto', risk)
+      return advice
+    },
+    presentCall: args => ({ card: 'generic', title: 'Calc advice', kind: 'other', rawInput: args }),
+  }))
+
+  // --- position_record -----------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'position_record',
+    description: '记录一条交易建议（仓位建议）到本地 positions.json，状态默认"未执行"（pending），防遗忘。'
+      + '若同一股票已有未执行的同类建议会提示（防止仓位重复叠加）。用户反馈执行情况后再用 position_update 更新状态。',
+    parameters: {
+      code: { type: 'string', required: true, description: '股票代码，如 600519 或 sh600519。' },
+      action: { type: 'string', required: true, description: 'buy=买入 / sell=卖出 / hold=持有。' },
+      price: { type: 'number', required: true, description: '记录时现价。' },
+      advice_price: { type: 'number', required: true, description: '建议成交价（触发价）。' },
+      target_price: { type: 'number', description: '目标价（卖出建议可缺省）。' },
+      stop_loss: { type: 'number', description: '止损价（卖出建议可缺省，此时为卖飞回补位）。' },
+      position_pct: { type: 'integer', required: true, description: '建议仓位比例（%）。' },
+      reason: { type: 'string', description: '一句话逻辑（技术面+舆情面）。' },
+      sentiment_id: { type: 'string', description: '关联的舆情记录 id（如有）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          symbol: { type: 'string', required: true },
+          name: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          duplicateWarning: { type: 'string', required: true },
+          positionCount: { type: 'integer', required: true },
+          pendingTotalPct: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `已记录建议 ${value.name}(${value.symbol}) (id=${value.id}) 状态=${value.status}\n`
+          + (value.duplicateWarning ? `⚠ ${value.duplicateWarning}\n` : '')
+          + `当前未执行建议仓位合计：${value.pendingTotalPct}%`,
+      }],
+    },
+    async execute(args) {
+      const symbol = normalizeCode(args.code)
+      const quote = await quoteOf(symbol, timeoutMs)
+      const doc = await loadPositions(dataRoot)
+      const id = `p${Date.now()}${Math.floor(Math.random() * 1000)}`
+      const duplicate = doc.positions.find((p) => p.symbol === symbol && p.action === args.action && p.status === 'pending')
+      const duplicateWarning = duplicate
+        ? `注意：${quote.name ?? symbol} 已有未执行的${args.action === 'buy' ? '买入' : '卖出'}建议（id=${duplicate.id}，仓位 ${duplicate.positionPct}%），请确认是否追加或更新`
+        : ''
+      doc.positions.push({
+        id,
+        date: today(),
+        symbol,
+        name: quote.name ?? symbol,
+        action: args.action,
+        price: args.price,
+        advicePrice: args.advice_price,
+        targetPrice: args.target_price ?? null,
+        stopLoss: args.stop_loss ?? null,
+        positionPct: args.position_pct,
+        reason: args.reason ?? null,
+        sentimentId: args.sentiment_id ?? null,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      })
+      await savePositions(dataRoot, doc)
+      const pendingTotal = doc.positions.filter((p) => p.status === 'pending').reduce((s, p) => s + (p.positionPct ?? 0), 0)
+      return {
+        id, symbol, name: quote.name ?? symbol, status: 'pending',
+        duplicateWarning, positionCount: doc.positions.length, pendingTotalPct: pendingTotal,
+      }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Record position advice', kind: 'edit', rawInput: args }),
+  }))
+
+  // --- position_list -------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'position_list',
+    description: '列出本地记录的交易建议（仓位建议），可按状态过滤：pending=未执行（默认重点展示）、executed=已执行、'
+      + 'cancelled=已取消、all=全部。返回未执行建议的仓位合计，供防遗忘核对。',
+    parameters: {
+      status: { type: 'string', description: 'pending / executed / cancelled / all（默认 pending）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          positions: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                date: { type: 'string', required: true },
+                symbol: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                action: { type: 'string', required: true },
+                price: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                advicePrice: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                targetPrice: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                stopLoss: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+                positionPct: { type: 'integer', required: true },
+                reason: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                status: { type: 'string', required: true },
+              },
+            },
+          },
+          pendingTotalPct: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.positions.length === 0 ? '(无匹配建议)'
+          : value.positions.map((p) =>
+            `[${p.status}] ${p.date} ${p.name}(${p.symbol}) ${p.action} 建议价=${p.advicePrice} 目标=${p.targetPrice ?? '-'} `
+            + `止损=${p.stopLoss ?? '-'} 仓位=${p.positionPct}% ${p.reason ? `｜${p.reason}` : ''} (id=${p.id})`).join('\n')
+          + `\n--- 未执行建议仓位合计：${value.pendingTotalPct}% ---`,
+      }],
+    },
+    async execute(args) {
+      const doc = await loadPositions(dataRoot)
+      const status = args.status ?? 'pending'
+      const positions = status === 'all' ? doc.positions : doc.positions.filter((p) => p.status === status)
+      const pendingTotalPct = doc.positions.filter((p) => p.status === 'pending').reduce((s, p) => s + (p.positionPct ?? 0), 0)
+      return { positions: positions.slice().reverse(), pendingTotalPct }
+    },
+    presentCall: () => ({ card: 'generic', title: 'List position advice', kind: 'read' }),
+  }))
+
+  // --- position_update -----------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'position_update',
+    description: '更新一条交易建议的执行状态：用户反馈"已执行"→ executed，"放弃/取消"→ cancelled。'
+      + '未反馈默认保持 pending（未执行）。找不到 id 会报错。',
+    parameters: {
+      id: { type: 'string', required: true, description: '建议 id（position_record / position_list 返回）。' },
+      status: { type: 'string', required: true, description: 'executed=已执行 / cancelled=已取消。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          updated: { type: 'boolean', required: true },
+          id: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          pendingTotalPct: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.updated ? `建议 ${value.id} 已标记为 ${value.status}；未执行建议仓位合计 ${value.pendingTotalPct}%`
+          : `未找到建议 ${value.id}`,
+      }],
+    },
+    async execute(args) {
+      const doc = await loadPositions(dataRoot)
+      const target = doc.positions.find((p) => p.id === args.id)
+      if (target === undefined) return { updated: false, id: args.id, status: args.status, pendingTotalPct: 0 }
+      if (args.status !== 'executed' && args.status !== 'cancelled') {
+        throw new Error(`position_update: status must be "executed" or "cancelled", got ${JSON.stringify(args.status)}`)
+      }
+      target.status = args.status
+      target.updatedAt = new Date().toISOString()
+      await savePositions(dataRoot, doc)
+      const pendingTotalPct = doc.positions.filter((p) => p.status === 'pending').reduce((s, p) => s + (p.positionPct ?? 0), 0)
+      return { updated: true, id: args.id, status: args.status, pendingTotalPct }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Update position status', kind: 'edit', rawInput: args }),
   }))
 }
 
