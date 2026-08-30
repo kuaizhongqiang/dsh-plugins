@@ -90,10 +90,16 @@ const SENTIMENT_SOURCES = {
 const SENTIMENT_FILE = 'sentiment.json'
 /** 仓位建议记录文件名（%DSH_HOME%\stock\positions.json）。 */
 const POSITIONS_FILE = 'positions.json'
+/** 模拟盘账户文件名（%DSH_HOME%\stock\paper.json）。 */
+const PAPER_FILE = 'paper.json'
+/** 模拟盘默认初始本金（元）。 */
+const DEFAULT_PAPER_CASH = 100000
 /** 每日舆情调查上限（默认不超过 5 只）。 */
 const DEFAULT_MAX_PICKS = 5
 /** 用户风险偏好参考值：0 最保守，10 最激进（默认 6.5）。 */
 const DEFAULT_RISK_PROFILE = 6.5
+/** A股一手股数（买卖按 100 股整数倍）。 */
+const LOT_SIZE = 100
 
 /** Configuration for the plugin. All optional — see apply(). */
 export const Config = z.object({
@@ -123,6 +129,25 @@ function round(value) {
 /** Round to 2 decimals (A-share minimum tick). */
 function round2(value) {
   return Math.round(value * 100) / 100
+}
+
+/**
+ * Build a filesystem-safe report file name for a symbol list.
+ * Joining 60+ symbols produces names far beyond the OS path limit, so when the
+ * plain name would be too long we truncate it and append a stable short hash.
+ */
+function reportFileName(date, symbols) {
+  const base = `${date}-${symbols.join('_')}`
+  const MAX = 120
+  if (base.length <= MAX) return `${base}.md`
+  // djb2 hash -> short stable suffix (no crypto dependency needed).
+  let hash = 5381
+  for (let i = 0; i < base.length; i += 1) {
+    hash = ((hash << 5) + hash + base.charCodeAt(i)) | 0
+  }
+  const suffix = (hash >>> 0).toString(36).padStart(6, '0').slice(0, 6)
+  const head = symbols.slice(0, 3).join('_')
+  return `${date}-${head}_etc${symbols.length}_${suffix}.md`
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -590,6 +615,55 @@ function positionPctFor(atrPct, riskProfile) {
 }
 
 /**
+ * 多因子信号评分：趋势 + 动量 + 量能。
+ * 供 advice_calc 的 auto 判断与置信度输出使用；分数范围约 -7..+7。
+ * @returns `{ score, level, factors }`（level: 强/中/弱 ｜ factors: 中文因子说明）
+ */
+function signalScoreFor(quote, indicators) {
+  const price = quote.price
+  const ma = indicators.ma ?? {}
+  const macd = indicators.macd ?? {}
+  const rsi6 = indicators.rsi?.rsi6
+  const ma5 = ma.ma5, ma20 = ma.ma20, ma60 = ma.ma60
+  let score = 0
+  const factors = []
+
+  // --- 趋势因子（±3）------------------------------------------------------
+  if (price !== null && ma20 !== null) {
+    if (price > ma20) { score += 1; factors.push('价>MA20') } else { score -= 1; factors.push('价<MA20') }
+  }
+  if (price !== null && ma60 !== null) {
+    if (price > ma60) { score += 1; factors.push('价>MA60') } else { score -= 1; factors.push('价<MA60') }
+  }
+  if (ma5 !== null && ma20 !== null) {
+    if (ma5 > ma20) { score += 1; factors.push('MA5>MA20') } else { score -= 1; factors.push('MA5<MA20') }
+  }
+
+  // --- 动量因子（±2）------------------------------------------------------
+  if (macd.dif !== null && macd.dea !== null && macd.hist !== null) {
+    if (macd.hist > 0 && macd.dif > macd.dea) { score += 1; factors.push('MACD金叉') }
+    else if (macd.hist < 0 && macd.dif < macd.dea) { score -= 1; factors.push('MACD死叉') }
+  }
+  if (rsi6 !== null && rsi6 !== undefined) {
+    if (rsi6 <= 25) { score += 1; factors.push(`RSI6=${rsi6}超卖`) }
+    else if (rsi6 >= 75) { score -= 1; factors.push(`RSI6=${rsi6}超买`) }
+  }
+
+  // --- 量能因子（±2）------------------------------------------------------
+  const vr = quote.volumeRatio ?? 1
+  const up = (quote.changePct ?? 0) >= 0
+  if (vr >= 1.5) {
+    if (up) { score += 1; factors.push(`放量上涨 量比${vr}`) }
+    else { score -= 1; factors.push(`放量下跌 量比${vr}`) }
+  } else if (vr <= 0.7) {
+    score -= 0.5; factors.push(`缩量 量比${vr}`)
+  }
+
+  const level = Math.abs(score) >= 4 ? '强' : Math.abs(score) >= 2 ? '中' : '弱'
+  return { score: round(score), level, factors: factors.slice(0, 6) }
+}
+
+/**
  * 计算一条交易建议的价格/仓位。
  * @param quote - parsed quote
  * @param indicators - computed indicators
@@ -618,13 +692,17 @@ function calcAdvice(quote, indicators, kline, action, riskProfile) {
   const support = supports.length > 0 ? Math.max(...supports) : price * 0.95
   const resistance = resistances.length > 0 ? Math.min(...resistances) : price * 1.05
 
-  // 自动判断动作：RSI 与均线位置
+  // 多因子信号评分（趋势/动量/量能），供 auto 判断与置信度输出
+  const sig = signalScoreFor(quote, indicators)
+
+  // 自动判断动作：优先信号分；极端 RSI 仅在中性信号分时微调方向
   let act = action
   if (act === 'auto' || act === undefined) {
-    if (rsi6 !== null && rsi6 !== undefined && rsi6 <= 25) act = 'buy'
-    else if (rsi6 !== null && rsi6 !== undefined && rsi6 >= 75) act = 'sell'
-    else if (price < ma60) act = 'sell'
-    else act = 'buy'
+    if (sig.score >= 2) act = 'buy'
+    else if (sig.score <= -2) act = 'sell'
+    else if (rsi6 !== null && rsi6 !== undefined && rsi6 <= 20 && sig.score >= -1) act = 'buy'
+    else if (rsi6 !== null && rsi6 !== undefined && rsi6 >= 80 && sig.score <= 1) act = 'sell'
+    else act = price < ma60 ? 'sell' : 'buy'
   }
   if (act !== 'buy' && act !== 'sell') act = 'buy'
 
@@ -665,7 +743,10 @@ function calcAdvice(quote, indicators, kline, action, riskProfile) {
     support: round2(support),
     resistance: round2(resistance),
     rsi6,
-    basis: `ATR=${round(atrV)}(${round(atrPct)}%) 支撑=${round2(support)} 压力=${round2(resistance)}`,
+    signalScore: sig.score,
+    confidence: sig.level,
+    factors: sig.factors,
+    basis: `ATR=${round(atrV)}(${round(atrPct)}%) 支撑=${round2(support)} 压力=${round2(resistance)} 信号分=${sig.score}(${sig.level}) ${sig.factors.join(' ')}`,
   }
 }
 
@@ -697,6 +778,62 @@ async function loadSentiment(root) {
 async function saveSentiment(root, doc) {
   doc.updatedAt = new Date().toISOString()
   await writeJson(join(root, SENTIMENT_FILE), doc)
+}
+
+// ---------------------------------------------------------------------------
+// 模拟盘账户存储（paper.json）
+// ---------------------------------------------------------------------------
+
+/**
+ * 模拟盘账户文档结构：
+ * {
+ *   version: 1,
+ *   initialCash: 100000,        // 初始本金
+ *   cash: 100000,               // 可用现金
+ *   positions: {                // 持仓：symbol -> 记录
+ *     sz300124: { name, shares, avgCost, updatedAt }
+ *   },
+ *   trades: [ { id, date, symbol, name, action, price, shares, amount, positionId?, createdAt } ],
+ *   updatedAt
+ * }
+ */
+
+/** Load the paper account document (null when not initialized). */
+async function loadPaper(root) {
+  const doc = await readJson(join(root, PAPER_FILE))
+  if (doc === null || typeof doc !== 'object' || typeof doc.initialCash !== 'number') return null
+  return doc
+}
+
+/** Save the paper account document. */
+async function savePaper(root, doc) {
+  doc.updatedAt = new Date().toISOString()
+  await writeJson(join(root, PAPER_FILE), doc)
+}
+
+/** Create a fresh paper account with the given initial cash. */
+function newPaperAccount(initialCash) {
+  return {
+    version: 1,
+    initialCash,
+    cash: initialCash,
+    positions: {},
+    trades: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+/** Round a trade amount to cents. */
+function roundMoney(value) {
+  return Math.round(value * 100) / 100
+}
+
+/** Parse a shares count to a valid 100-lot multiple (A股一手 = 100 股). */
+function normalizeShares(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) throw new Error('paper tools: shares must be a positive number')
+  return Math.floor(n / LOT_SIZE) * LOT_SIZE
 }
 
 // ---------------------------------------------------------------------------
@@ -1226,7 +1363,7 @@ export function apply(ctx, config) {
           + `### 分析\n\n<!-- 由模型补充：趋势、信号、风险、结论 -->\n`,
         )
       }
-      const outputPath = args.output_path ?? join(dataRoot, 'reports', `${date}-${symbols.join('_')}.md`)
+      const outputPath = args.output_path ?? join(dataRoot, 'reports', reportFileName(date, symbols))
       await mkdir(join(outputPath, '..'), { recursive: true })
       const markdown = `# 个股分析报告（${date}）\n\n> 数据来源：腾讯公开行情；仅供学习参考，不构成投资建议。\n\n${sections.join('\n')}`
       await writeFile(outputPath, markdown, 'utf8')
@@ -1432,6 +1569,7 @@ export function apply(ctx, config) {
                 reflexivity: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
                 bias: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
                 conclusion: { type: 'string', required: true },
+                createdAt: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
               },
             },
           },
@@ -1482,6 +1620,9 @@ export function apply(ctx, config) {
           support: { type: 'number', required: true },
           resistance: { type: 'number', required: true },
           rsi6: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
+          signalScore: { type: 'number', required: true },
+          confidence: { type: 'string', required: true },
+          factors: { type: 'array', required: true, items: { type: 'string' } },
           basis: { type: 'string', required: true },
         },
       },
@@ -1490,7 +1631,9 @@ export function apply(ctx, config) {
         text: `${value.name}(${value.symbol}) ${value.actionLabel}建议\n`
           + `现价 ${value.price ?? '-'}（数据日 ${value.date ?? '-'}）\n`
           + `建议${value.actionLabel}价 ${value.trigger} ｜ 目标价 ${value.target} ｜ 止损价 ${value.stop}\n`
-          + `仓位建议 ${value.positionPct}%\n依据：${value.basis}`,
+          + `仓位建议 ${value.positionPct}%\n`
+          + `信号分 ${value.signalScore}（${value.confidence}）${value.factors.join(' ')}\n`
+          + `依据：${value.basis}`,
       }],
     },
     async execute(args) {
@@ -1608,7 +1751,9 @@ export function apply(ctx, config) {
                 stopLoss: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }] },
                 positionPct: { type: 'integer', required: true },
                 reason: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+                sentimentId: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
                 status: { type: 'string', required: true },
+                createdAt: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
               },
             },
           },
@@ -1675,6 +1820,312 @@ export function apply(ctx, config) {
     },
     presentCall: args => ({ card: 'generic', title: 'Update position status', kind: 'edit', rawInput: args }),
   }))
+
+  // --- paper_init ----------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'paper_init',
+    description: '初始化模拟盘账户（默认本金 100000 元），持久化到 %DSH_HOME%\\stock\\paper.json。'
+      + '模拟盘是"建议即操作"的自有账户：每条 buy/sell 建议被记录后，用 paper_execute_advice 将建议执行成模拟盘成交。'
+      + '重复调用不重置；传 force=true 才清空重建。返回账户快照。',
+    parameters: {
+      initial_cash: { type: 'number', description: '初始本金（元），默认 100000。' },
+      force: { type: 'boolean', description: 'true 时重置账户（清空持仓与流水），默认 false。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          initialized: { type: 'boolean', required: true },
+          account: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              initialCash: { type: 'number', required: true },
+              cash: { type: 'number', required: true },
+              positionCount: { type: 'integer', required: true },
+              tradeCount: { type: 'integer', required: true },
+              totalCost: { type: 'number', required: true },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderPaperAccount(value.account) }],
+    },
+    async execute(args) {
+      const existing = await loadPaper(dataRoot)
+      if (existing !== null && args.force !== true) {
+        return { initialized: false, account: summarizePaper(existing) }
+      }
+      const account = newPaperAccount(args.initial_cash ?? DEFAULT_PAPER_CASH)
+      await savePaper(dataRoot, account)
+      return { initialized: true, account: summarizePaper(account) }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Init paper account', kind: 'edit', rawInput: args }),
+  }))
+
+  // --- paper_account -------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'paper_account',
+    description: '查看模拟盘账户：现金、持仓明细（股数/成本/现价/市值/浮盈亏）、总资产、收益率与交易流水摘要。'
+      + '未初始化时返回提示（用 paper_init 开户）。现价来自腾讯实时行情。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          initialized: { type: 'boolean', required: true },
+          account: { required: true, oneOf: [{ type: 'object' }, { type: 'null' }] },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.initialized
+          ? renderPaperAccount(value.account)
+          : '模拟盘未初始化：调用 paper_init 开户（默认本金 10 万）。',
+      }],
+    },
+    async execute() {
+      const account = await loadPaper(dataRoot)
+      if (account === null) return { initialized: false, account: null }
+      const summary = await summarizePaperWithQuotes(account, timeoutMs)
+      return { initialized: true, account: summary }
+    },
+    presentCall: () => ({ card: 'generic', title: 'Paper account', kind: 'read' }),
+  }))
+
+  // --- paper_execute_advice ------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'paper_execute_advice',
+    description: '把一条 pending 交易建议执行到模拟盘（"建议即操作"）：buy 建议按建议价买入 position_pct% 对应金额（'
+      + '按总资产比例，100 股整数倍），sell 建议按建议价卖出对应持仓的全部或指定股数。执行后自动把该建议标记为 '
+      + 'executed。可用 overrides（价格/股数/金额）微调。返回成交明细。',
+    parameters: {
+      id: { type: 'string', required: true, description: '待执行的建议 id（position_list 可查）。' },
+      price: { type: 'number', description: '成交价覆盖（默认用建议的 advice_price）。' },
+      shares: { type: 'integer', description: '股数覆盖：buy 时若给出则按此股数买入（忽略仓位比例）；sell 时给出则只卖这么多股。' },
+      amount: { type: 'number', description: '金额覆盖：buy 时若给出则按此金额买入（忽略仓位比例）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          executed: { type: 'boolean', required: true },
+          trade: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string', required: true },
+              date: { type: 'string', required: true },
+              symbol: { type: 'string', required: true },
+              name: { type: 'string', required: true },
+              action: { type: 'string', required: true },
+              price: { type: 'number', required: true },
+              shares: { type: 'integer', required: true },
+              amount: { type: 'number', required: true },
+              positionId: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+            },
+          },
+          cash: { type: 'number', required: true },
+          message: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.executed
+          ? `${value.trade.action === 'buy' ? '买入' : '卖出'} ${value.trade.name}(${value.trade.symbol}) `
+            + `${value.trade.shares}股 @ ${value.trade.price} = ${value.trade.amount}元；剩余现金 ${value.cash}元`
+          : `未执行：${value.message}`,
+      }],
+    },
+    async execute(args) {
+      const positionsDoc = await loadPositions(dataRoot)
+      const position = positionsDoc.positions.find((p) => p.id === args.id)
+      if (position === undefined) {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: `未找到建议 ${args.id}` }
+      }
+      if (position.status !== 'pending') {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: `建议 ${args.id} 状态为 ${position.status}，仅 pending 可执行` }
+      }
+      const account = await loadPaper(dataRoot)
+      if (account === null) {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: '模拟盘未初始化，请先调用 paper_init 开户' }
+      }
+
+      const symbol = position.symbol
+      const quote = await quoteOf(symbol, timeoutMs)
+      const price = args.price ?? position.advicePrice ?? quote.price ?? 0
+      if (!(price > 0)) return { executed: false, trade: emptyTrade(), cash: 0, message: '成交价无效' }
+
+      const summary = await summarizePaperWithQuotes(account, timeoutMs)
+      const totalAssets = summary.totalAssets
+
+      let shares
+      if (args.shares !== undefined) {
+        shares = normalizeShares(args.shares)
+      } else if (position.action === 'buy') {
+        const budget = args.amount ?? (totalAssets * (position.positionPct ?? 10)) / 100
+        shares = Math.floor(budget / price / LOT_SIZE) * LOT_SIZE
+        // 预算不足一手（高价股小额仓位）：默认不建仓，避免超配；模型可显式传 shares 覆盖
+      } else {
+        // sell：默认卖全部持仓
+        shares = account.positions[symbol]?.shares ?? 0
+      }
+      if (shares <= 0) {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: position.action === 'buy'
+          ? '预算不足以买入 100 股（一手）'
+          : `模拟盘无 ${symbol} 持仓可卖` }
+      }
+
+      const amount = roundMoney(shares * price)
+      if (position.action === 'buy') {
+        if (amount > account.cash) {
+          return { executed: false, trade: emptyTrade(), cash: 0, message: `现金不足：需 ${amount} 元，可用 ${account.cash} 元` }
+        }
+        account.cash = roundMoney(account.cash - amount)
+        const holding = account.positions[symbol] ?? { name: quote.name ?? symbol, shares: 0, avgCost: 0, updatedAt: null }
+        const totalCost = holding.avgCost * holding.shares + amount
+        holding.shares += shares
+        holding.avgCost = roundMoney(totalCost / holding.shares)
+        holding.updatedAt = new Date().toISOString()
+        account.positions[symbol] = holding
+      } else {
+        const holding = account.positions[symbol]
+        if (holding === undefined || holding.shares < shares) {
+          return { executed: false, trade: emptyTrade(), cash: 0, message: `持仓不足：${symbol} 持有 ${holding?.shares ?? 0} 股，需卖 ${shares} 股` }
+        }
+        account.cash = roundMoney(account.cash + amount)
+        holding.shares -= shares
+        if (holding.shares === 0) delete account.positions[symbol]
+      }
+
+      const trade = {
+        id: `t${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        date: today(),
+        symbol,
+        name: quote.name ?? symbol,
+        action: position.action,
+        price,
+        shares,
+        amount,
+        positionId: position.id,
+        createdAt: new Date().toISOString(),
+      }
+      account.trades.push(trade)
+      await savePaper(dataRoot, account)
+
+      position.status = 'executed'
+      position.updatedAt = new Date().toISOString()
+      await savePositions(dataRoot, positionsDoc)
+
+      return { executed: true, trade, cash: account.cash, message: 'ok' }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Execute advice on paper', kind: 'edit', rawInput: args }),
+  }))
+
+  // --- paper_trade ---------------------------------------------------------
+  ctx.tools.register(defineTool({
+    name: 'paper_trade',
+    description: '在模拟盘手工成交一笔（不依赖建议记录）：buy 买入 / sell 卖出指定股数，按给定价格（默认实时价）成交，'
+      + '更新现金与持仓。用于模拟盘日常调仓、止损/止盈操作。返回成交明细与最新现金。',
+    parameters: {
+      code: { type: 'string', required: true, description: '股票代码，如 600519 或 sh600519。' },
+      action: { type: 'string', required: true, description: 'buy=买入 / sell=卖出。' },
+      shares: { type: 'integer', required: true, description: '股数（自动取整到 100 股）。' },
+      price: { type: 'number', description: '成交价（默认腾讯实时价）。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          executed: { type: 'boolean', required: true },
+          trade: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string', required: true },
+              date: { type: 'string', required: true },
+              symbol: { type: 'string', required: true },
+              name: { type: 'string', required: true },
+              action: { type: 'string', required: true },
+              price: { type: 'number', required: true },
+              shares: { type: 'integer', required: true },
+              amount: { type: 'number', required: true },
+              positionId: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+            },
+          },
+          cash: { type: 'number', required: true },
+          message: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.executed
+          ? `${value.trade.action === 'buy' ? '买入' : '卖出'} ${value.trade.name}(${value.trade.symbol}) `
+            + `${value.trade.shares}股 @ ${value.trade.price} = ${value.trade.amount}元；剩余现金 ${value.cash}元`
+          : `未执行：${value.message}`,
+      }],
+    },
+    async execute(args) {
+      const account = await loadPaper(dataRoot)
+      if (account === null) {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: '模拟盘未初始化，请先调用 paper_init 开户' }
+      }
+      if (args.action !== 'buy' && args.action !== 'sell') {
+        return { executed: false, trade: emptyTrade(), cash: 0, message: `action 必须为 buy 或 sell，got ${JSON.stringify(args.action)}` }
+      }
+      const symbol = normalizeCode(args.code)
+      const quote = await quoteOf(symbol, timeoutMs)
+      const price = args.price ?? quote.price ?? 0
+      if (!(price > 0)) return { executed: false, trade: emptyTrade(), cash: 0, message: '成交价无效' }
+      const shares = normalizeShares(args.shares)
+      const amount = roundMoney(shares * price)
+
+      if (args.action === 'buy') {
+        if (amount > account.cash) {
+          return { executed: false, trade: emptyTrade(), cash: 0, message: `现金不足：需 ${amount} 元，可用 ${account.cash} 元` }
+        }
+        account.cash = roundMoney(account.cash - amount)
+        const holding = account.positions[symbol] ?? { name: quote.name ?? symbol, shares: 0, avgCost: 0, updatedAt: null }
+        const totalCost = holding.avgCost * holding.shares + amount
+        holding.shares += shares
+        holding.avgCost = roundMoney(totalCost / holding.shares)
+        holding.updatedAt = new Date().toISOString()
+        account.positions[symbol] = holding
+      } else {
+        const holding = account.positions[symbol]
+        if (holding === undefined || holding.shares < shares) {
+          return { executed: false, trade: emptyTrade(), cash: 0, message: `持仓不足：${symbol} 持有 ${holding?.shares ?? 0} 股，需卖 ${shares} 股` }
+        }
+        account.cash = roundMoney(account.cash + amount)
+        holding.shares -= shares
+        if (holding.shares === 0) delete account.positions[symbol]
+      }
+
+      const trade = {
+        id: `t${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        date: today(),
+        symbol,
+        name: quote.name ?? symbol,
+        action: args.action,
+        price,
+        shares,
+        amount,
+        positionId: null,
+        createdAt: new Date().toISOString(),
+      }
+      account.trades.push(trade)
+      await savePaper(dataRoot, account)
+      return { executed: true, trade, cash: account.cash, message: 'ok' }
+    },
+    presentCall: args => ({ card: 'generic', title: 'Paper trade', kind: 'edit', rawInput: args }),
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,4 +2157,88 @@ function renderIndicators(v) {
     `KDJ ${v.kdj.k ?? '-'}/${v.kdj.d ?? '-'}/${v.kdj.j ?? '-'}`,
     `ATR ${v.atr14 ?? '-'}`,
   ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// paper (模拟盘) renderers & helpers
+// ---------------------------------------------------------------------------
+
+/** Empty trade placeholder for failed executions. */
+function emptyTrade() {
+  return { id: null, date: null, symbol: null, name: null, action: null, price: null, shares: null, amount: null, positionId: null }
+}
+
+/** Summarize an account without live quotes (cheap snapshot). */
+function summarizePaper(account) {
+  const positionCount = Object.keys(account.positions ?? {}).length
+  const totalCost = Object.values(account.positions ?? {})
+    .reduce((s, h) => s + h.avgCost * h.shares, 0)
+  return {
+    initialCash: account.initialCash,
+    cash: account.cash,
+    positionCount,
+    tradeCount: (account.trades ?? []).length,
+    totalCost: roundMoney(totalCost),
+  }
+}
+
+/**
+ * Summarize an account with live quotes: mark-to-market per holding,
+ * total assets and total P&L.
+ */
+async function summarizePaperWithQuotes(account, timeoutMs) {
+  const positions = []
+  let marketValue = 0
+  let totalCost = 0
+  for (const [symbol, holding] of Object.entries(account.positions ?? {})) {
+    let price = holding.avgCost
+    let name = holding.name ?? symbol
+    try {
+      const quote = await quoteOf(symbol, timeoutMs)
+      price = quote.price ?? price
+      name = quote.name ?? name
+    } catch { /* keep cost price when quote fails */ }
+    const value = roundMoney(price * holding.shares)
+    const cost = roundMoney(holding.avgCost * holding.shares)
+    marketValue += value
+    totalCost += cost
+    positions.push({
+      symbol,
+      name,
+      shares: holding.shares,
+      avgCost: holding.avgCost,
+      price,
+      marketValue: value,
+      cost,
+      pnl: roundMoney(value - cost),
+      pnlPct: cost > 0 ? round((value - cost) / cost * 100) : 0,
+    })
+  }
+  positions.sort((a, b) => b.marketValue - a.marketValue)
+  return {
+    initialCash: account.initialCash,
+    cash: account.cash,
+    positionCount: positions.length,
+    tradeCount: (account.trades ?? []).length,
+    totalCost: roundMoney(totalCost),
+    marketValue: roundMoney(marketValue),
+    totalAssets: roundMoney(account.cash + marketValue),
+    totalPnl: roundMoney(account.cash + marketValue - account.initialCash),
+    totalPnlPct: round((account.cash + marketValue - account.initialCash) / account.initialCash * 100),
+    positions,
+  }
+}
+
+/** Render a paper account summary for the model-facing text block. */
+function renderPaperAccount(account) {
+  const lines = [
+    `模拟盘 初始本金 ${account.initialCash}元 ｜ 现金 ${account.cash}元 ｜ 持仓 ${account.positionCount}只 ｜ 成交 ${account.tradeCount}笔`,
+  ]
+  if (account.totalAssets !== undefined) {
+    lines.push(`总资产 ${account.totalAssets}元 ｜ 总盈亏 ${account.totalPnl}元 (${account.totalPnlPct}%) ｜ 市值 ${account.marketValue}元`)
+  }
+  for (const p of account.positions ?? []) {
+    lines.push(`  ${p.name}(${p.symbol}) ${p.shares}股 成本${p.avgCost} 现价${p.price} 市值${p.marketValue} 浮盈亏${p.pnl} (${p.pnlPct}%)`)
+  }
+  return lines.join('\n')
 }

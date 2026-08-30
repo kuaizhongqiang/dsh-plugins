@@ -1,6 +1,6 @@
 ---
 name: install-stock
-description: 把 A 股行情分析与自选股插件安装到 dsh web（9 个工具：stock_quote / stock_kline / stock_indicators / stock_market_overview / watchlist_add|remove|list / stock_daily_collect / stock_report，数据源腾讯公开接口，无密钥，指标零依赖计算，数据存 %DSH_HOME%\stock）。当用户要求安装、卸载或排查 stock 插件，或想让 dsh 具备查行情、技术分析、自选股管理、每日行情收集、个股报告能力时使用。
+description: 把 A 股行情分析与自选股插件安装到 dsh web（15 个工具：行情/自选股/每日收集/报告 + 舆情 sentiment_* + 建议 position_* + 模拟盘 paper_*，数据源腾讯公开接口，无密钥，指标零依赖计算，数据存 %DSH_HOME%\stock）。当用户要求安装、卸载或排查 stock 插件，或想让 dsh 具备查行情、技术分析、自选股管理、每日行情收集、个股报告能力时使用。
 whenToUse: 用户想给 dsh 加股票行情查询/技术分析/自选股/每日收集/分析报告能力、要求安装或卸载 stock 插件、或查询股票相关功能不可用需要排查时。
 ---
 
@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 脚本会（幂等，可重复执行）：
 1. 复制 `plugins/stock` 到 `%DSH_HOME%\profiles\web\plugins\stock`
 2. 幂等地在 `cordis.patch.yml` 追加 `- insert:` 的 `tool-stock` 挂载条目
-   （已存在则跳过；一个条目注册九个工具）
+   （已存在则跳过；一个条目注册全部工具，含舆情/建议/模拟盘）
 
 确认输出出现 `OK  plugin copied`、`OK  profile patch entry added`（或
 `SKIP ... already present`）。若报 `no dsh profiles found` 或 `web profile
