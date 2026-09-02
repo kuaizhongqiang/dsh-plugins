@@ -19,7 +19,8 @@ dsh-plugins/
 │   ├── stock-dsh-plugin/
 │   ├── deepseek-balance-dsh-plugin/
 │   ├── deepseek-recharge-dsh-plugin/
-│   └── document-read-dsh-plugin/
+│   ├── document-read-dsh-plugin/
+│   └── github-dsh-plugin/
 ├── skills/                     安装技能：描述每个插件的安装方法，可选择安装
 │   ├── README.md               技能机制与安装说明
 │   ├── install-skills.ps1      一键把技能装进 %DSH_HOME%\skills（可选子集）
@@ -32,7 +33,8 @@ dsh-plugins/
 │   ├── install-stock/SKILL.md
 │   ├── install-deepseek-balance/SKILL.md
 │   ├── install-deepseek-recharge/SKILL.md
-│   └── install-document-read/SKILL.md
+│   ├── install-document-read/SKILL.md
+│   └── install-github/SKILL.md
 ├── README.md
 └── LICENSE                     MIT
 ```
@@ -68,6 +70,7 @@ dsh-plugins/
 | [audio-speak](plugins/audio-speak-dsh-plugin/README.md) | 语音合成工具：调用 `speak_text`（MiMo `mimo-v2.5-tts`）合成语音写入本地文件，9 种内置音色、wav/mp3 输出 | `MIMO_API_KEY` | `install-audio-speak` |
 | [credentials](plugins/credentials-dsh-plugin/README.md) | 凭证管理工具：`credentials_list` / `credentials_set` / `credentials_unset` / `credentials_verify` 在对话里管理 `%DSH_HOME%\.credentials.yaml`，走官方 seam、永不暴露 key 值，set 可挂 approval 闸门 | 无 | `install-credentials` |
 | [stock](plugins/stock-dsh-plugin/README.md) | A股行情与自选股：`stock_quote`/`stock_kline`/`stock_indicators`（MA/MACD/RSI/KDJ/ATR）/`stock_market_overview`/`watchlist_*`/`stock_daily_collect`/`stock_report`，腾讯公开接口、零密钥 | 无 | `install-stock` |
+| [github](plugins/github-dsh-plugin/README.md) | GitHub 仓库管理：`github_repo`/`github_files`/`github_file_write`/`github_issue`/`github_pr`/`github_commit`/`github_search` 8 工具 + `github_sync` 本地工作区同步（clone/pull/commit/push，全局/项目双 scope，token 一次性注入不落盘） | `GITHUB_TOKEN`（可选：匿名只读公开仓库） | `install-github` |
 | [deepseek-balance](plugins/deepseek-balance-dsh-plugin/README.md) | DeepSeek 余额查询：`deepseek_balance` 走官方 `GET /user/balance` 接口返回总/充值/赠送余额 | `DEEPSEEK_API_KEY` | `install-deepseek-balance` |
 | [deepseek-recharge](plugins/deepseek-recharge-dsh-plugin/README.md) | DeepSeek 充值辅助：`deepseek_recharge` 查余额作上下文并打开平台充值页（官方无充值 API，网页端支付） | `DEEPSEEK_API_KEY` | `install-deepseek-recharge` |
 | [document-read](plugins/document-read-dsh-plugin/README.md) | 文档理解工具：`read_document` 综合读取 Word `.docx/.docm` / Excel `.xlsx` / PDF `.pdf`（本地路径或 URL），提取文字 + 内嵌图片逐张 vision 描述（默认 MiMo），解析由 Python python-docx/openpyxl/PyMuPDF 完成 | `MIMO_API_KEY` + Python 3.9+ 与三个解析库 | `install-document-read` |
@@ -87,6 +90,10 @@ dsh-plugins/
   [`skills/README.md`](skills/README.md)
 - 包内不含任何 API key；密钥配置走 `%DSH_HOME%\.credentials.yaml` 或环境变量，
   不要把真实 key 写进仓库或分享的文件
+- **版本字段（必填）**：`plugins/<name>/package.json` 必须带 `version`（SemVer，
+  单一事实来源）；`index.js` 运行时读取（`fileURLToPath` + `readFileSync`）并导出
+  `version`，`apply()` 里 `console.info` 一行便于日志确认实际加载版本；
+  `install.ps1` 复制后打印版本。升级 = 重跑 `install.ps1`（幂等覆盖）
 
 ## License
 
