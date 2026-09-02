@@ -1,6 +1,6 @@
 # GitHub 插件（tool-github）详细设计
 
-> 状态：设计评审中 · 目标版本 0.1.1 · 2026-02
+> 状态：已实现（v0.1.1，8 工具，冒烟测试通过） · 2026-02
 >
 > 定位：把 GitHub 仓库管理接入 dsh web——查仓库、读代码、管 issue/PR、
 > 本地工作区同步（clone/commit/push）。对齐 stock 插件的架构与工程约定。
@@ -52,7 +52,7 @@
    `OK  plugin copied -> <dir>  (v0.1.0)`，从 package.json 读取。
 
 4. **`cordis.patch.yml` 条目注释带版本**：
-   `# --- tool-github v0.1.0 ---`（升级后重跑 install.ps1 时该注释保持幂等
+   `# --- tool-github v0.1.1 ---`（升级后重跑 install.ps1 时该注释保持幂等
    匹配 id，不重复插入；版本体现在注释需人工看，仅作参考不作匹配依据）。
 
 5. **升级流程 = 重跑 install.ps1**：覆盖复制（幂等）+ patch 条目按 id 幂等

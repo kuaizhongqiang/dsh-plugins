@@ -39,7 +39,7 @@ Write-Host "OK  plugin copied -> $pluginDir  (v$version)" -ForegroundColor Green
 # --- 2. Add the profile patch entry (idempotent) ---------------------------
 $entryText = @'
 
-# --- tool-github v0.1.0 (native dsh) ---
+# --- tool-github v0.1.1 (native dsh) ---
 # GitHub repository management: repo/file/issue/PR browsing plus local
 # workspace sync (clone/pull/commit/push). Anonymous read-only on public
 # repos; set GITHUB_TOKEN through the credentials service for private repos
