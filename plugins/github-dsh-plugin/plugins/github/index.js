@@ -77,9 +77,12 @@ export function apply(ctx, config) {
     maxDiffLines: config.maxDiffLines > 0 ? config.maxDiffLines : 400,
   }
 
-  const credentials = ctx.get ? ctx.get('credentials') : undefined
+  // The credentials service may start AFTER this plugin registers — fetch it
+  // lazily per operation (see tool-credentials / deepseek-balance), never once
+  // at apply time, or the captured value is undefined forever.
   const resolveToken = async () => {
     const ref = credentialRef(cfg.tokenRef)
+    const credentials = ctx.get ? ctx.get('credentials') : undefined
     const hit = credentials !== undefined
       ? (await credentials.resolve(ref))?.value
       : process.env[cfg.tokenRef]
