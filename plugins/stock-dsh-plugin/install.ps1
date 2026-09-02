@@ -1,12 +1,14 @@
-# Install the stock analysis tools into a native dsh installation.
+# Install the A-share stock analysis tools into a native dsh installation.
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File .\install.ps1
 #
 # Steps:
 #   1. Locate $DSH_HOME (defaults to ~/.dsh) and the web profile.
-#   2. Copy plugins/stock into the profile.
+#   2. Copy plugins/stock (index.js + package.json) into the profile.
 #   3. Add the profile patch entry (idempotent: skipped when already present).
 #   4. Remind the user to restart the web instance.
+#
+# No API key needed: data comes from Tencent public quote endpoints.
 $ErrorActionPreference = 'Stop'
 
 # --- 0. Prerequisites ------------------------------------------------------
@@ -14,6 +16,7 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 $profileDir = Join-Path $dshHome 'profiles\web'
 $pluginDir = Join-Path $profileDir 'plugins\stock'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
+$version = (Get-Content (Join-Path $PSScriptRoot 'plugins\stock\package.json') -Raw | ConvertFrom-Json).version
 
 if (-not (Test-Path (Join-Path $dshHome 'profiles'))) {
   Write-Host "ERROR: no dsh profiles found under $dshHome. Is dsh installed?" -ForegroundColor Red
@@ -30,7 +33,7 @@ if (-not (Test-Path $profileDir)) {
 New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'plugins\stock\index.js') -Destination $pluginDir -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'plugins\stock\package.json') -Destination $pluginDir -Force
-Write-Host "OK  plugin copied -> $pluginDir" -ForegroundColor Green
+Write-Host "OK  plugin copied -> $pluginDir  (v$version)" -ForegroundColor Green
 
 # --- 2. Add the profile patch entry (idempotent) ---------------------------
 $entryText = @'
@@ -48,9 +51,8 @@ if ($current -match 'tool-stock') {
   Write-Host "SKIP profile patch entry already present in $patchFile" -ForegroundColor Yellow
 } else {
   # dsh initializes cordis.patch.yml with a bare "[]" (empty-array placeholder).
-  # Appending entries after it would produce invalid YAML (js-yaml / cordis both
-  # reject a sequence that continues after a flow value), so strip that line and
-  # merge the entry into the existing list. Written UTF-8 without BOM.
+  # Appending entries after it would produce invalid YAML, so strip that line
+  # and merge the entry into the existing list. Written UTF-8 without BOM.
   $lines = ($current -split "`r?`n") | Where-Object { $_ -notmatch '^\s*\[\]\s*$' }
   $base = ($lines -join "`n").TrimEnd()
   $combined = if ($base) { $base + "`n" + $entryText.TrimStart() } else { $entryText.TrimStart() }
@@ -58,9 +60,16 @@ if ($current -match 'tool-stock') {
   Write-Host "OK  profile patch entry added -> $patchFile" -ForegroundColor Green
 }
 
-# --- 3. Done note ----------------------------------------------------------
+# --- 3. Optional config reminder -------------------------------------------
+Write-Host ''
+Write-Host 'Optional config (edit the tool-stock entry in cordis.patch.yml):' -ForegroundColor Cyan
+Write-Host '  config:'
+Write-Host '    klineDays: 150              # daily K-line cache depth (max 150)'
+Write-Host '    dataRoot: C:/path/to/stock  # user data dir (default %DSH_HOME%\stock)'
+Write-Host '    timeoutMs: 15000            # per-request timeout'
+
+# --- 4. Restart reminder ----------------------------------------------------
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Cyan
-Write-Host '  1. No API key is needed (Tencent public endpoints).'
-Write-Host '  2. Restart the web instance:  stop it, then run  dsh web  (or  npx @deepseek-ai/dsh web)'
-Write-Host '  3. Ask: "茅台现在什么价" / "把 600519 加进自选" / "收集今日行情" / "出一份 600519 分析报告"'
+Write-Host '  1. Restart the web instance:  stop it, then run  dsh web  (or  npx @deepseek-ai/dsh web)'
+Write-Host "  2. Verify in chat: '茅台现在什么价？' (stock_quote) or '今天大盘怎么样？' (stock_market_overview)."

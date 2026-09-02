@@ -13,13 +13,18 @@
  */
 
 import { spawn } from 'node:child_process'
-import { createWriteStream, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { createWriteStream, mkdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import z from '@deepseek-ai/schemastery'
 
 export const name = 'unity-mcp-supervisor'
 export const inject = []
+
+/** package.json is the single source of truth for the version. */
+const PKG = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'package.json'), 'utf8'))
+export const version = PKG.version
 
 /** Configuration for the server lifecycle. All fields optional; see apply(). */
 export const Config = z.object({
@@ -98,6 +103,7 @@ function spawnServer(command, args, cwd, logFile, log) {
 }
 
 export function apply(ctx, config) {
+  console.info(`[unity-mcp-supervisor] v${version} registered`)
   const log = typeof ctx.logger === 'function' ? ctx.logger('unity-mcp') : console
   const enabled = config.enabled ?? true
   const endpointUrl = config.endpointUrl ?? DEFAULTS.endpointUrl

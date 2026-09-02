@@ -18,7 +18,9 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -26,6 +28,10 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 
 export const name = 'tool-describe-image'
 export const inject = ['tools']
+
+/** package.json is the single source of truth for the version. */
+const PKG = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'package.json'), 'utf8'))
+export const version = PKG.version
 
 /** Default vision endpoint: Xiaomi MiMo, OpenAI chat-completions standard. */
 export const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1'
@@ -232,6 +238,7 @@ async function describeImage(source, prompt, options) {
  * @param config - the vision backend facts.
  */
 export function apply(ctx, config) {
+  console.info(`[tool-describe-image] v${version} registered`)
   const baseURL = config.baseURL ?? DEFAULT_BASE_URL
   const model = config.model ?? DEFAULT_MODEL
   const apiKeyEnv = config.apiKeyEnv ?? DEFAULT_API_KEY_ENV
