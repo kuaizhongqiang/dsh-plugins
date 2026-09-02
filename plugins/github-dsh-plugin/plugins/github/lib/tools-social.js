@@ -17,7 +17,7 @@ const ARR = { type: 'array', items: { type: 'object', additionalProperties: true
  * @param {object} env - shared plugin environment (cfg, core helpers, git kit).
  */
 export function register(ctx, env) {
-  const { gh, errOf, errFromGh, invalidErr, noTokenErr, withQuery, clipText, clipLines, sha7, csv, repoParam, rateNote, resolveToken } = env
+  const { gh, ghRaw, errOf, errFromGh, invalidErr, noTokenErr, withQuery, clipText, clipLines, sha7, csv, repoParam, rateNote, resolveToken } = env
   const cfg = env.cfg
 
   const fmtErr = (e) => [`❌ [${e.status}] ${e.message}`, ...(e.hint ? [`💡 ${e.hint}`] : [])]
@@ -113,8 +113,9 @@ export function register(ctx, env) {
           })),
         }
       }
+      const needsNumber = ['get', 'comment', 'close', 'reopen', 'label'].includes(action)
       const n = Number(args.number)
-      if (!Number.isInteger(n) || n <= 0) return invalidErr(`${action} 需要 number 参数（issue 编号）`)
+      if (needsNumber && (!Number.isInteger(n) || n <= 0)) return invalidErr(`${action} 需要 number 参数（issue 编号）`)
       if (action === 'get') {
         const res = await gh(`${base}/issues/${n}`, { token, signal })
         if (res.kind !== 'ok') return errFromGh(res)
@@ -292,8 +293,9 @@ export function register(ctx, env) {
           })),
         }
       }
+      const needsNumber = ['get', 'comment', 'merge', 'close'].includes(action)
       const n = Number(args.number)
-      if (!Number.isInteger(n) || n <= 0) return invalidErr(`${action} 需要 number 参数（PR 编号）`)
+      if (needsNumber && (!Number.isInteger(n) || n <= 0)) return invalidErr(`${action} 需要 number 参数（PR 编号）`)
       if (action === 'get') {
         const res = await gh(`${base}/pulls/${n}`, { token, signal })
         if (res.kind !== 'ok') return errFromGh(res)
