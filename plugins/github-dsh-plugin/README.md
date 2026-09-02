@@ -5,7 +5,7 @@
 单入口 `plugins/github/index.js` + `lib/` 分层，零第三方依赖（仅 dsh 自带包）。
 详细设计见 [DESIGN.md](DESIGN.md)。
 
-## 工具（9 个）
+## 工具（8 个）
 
 | 工具 | 作用 | 写操作 |
 |---|---|---|
@@ -16,7 +16,6 @@
 | `github_pr` | list / get（含 diff）/ create / comment / merge / close | ✅ |
 | `github_commit` | 提交历史 / 单 commit 改动（patch 截断） | — |
 | `github_search` | 搜仓库 / 代码（需 token）/ issue | — |
-| `github_notifications` | 未读通知列表 / 标记已读 | ✅ |
 | `github_sync` | list / clone / status / pull / branch / commit / push | ✅ |
 
 ## 安装

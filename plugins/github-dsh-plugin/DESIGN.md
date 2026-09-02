@@ -1,6 +1,6 @@
 # GitHub 插件（tool-github）详细设计
 
-> 状态：设计评审中 · 目标版本 0.1.0 · 2026-02
+> 状态：设计评审中 · 目标版本 0.1.1 · 2026-02
 >
 > 定位：把 GitHub 仓库管理接入 dsh web——查仓库、读代码、管 issue/PR、
 > 本地工作区同步（clone/commit/push）。对齐 stock 插件的架构与工程约定。
@@ -110,7 +110,7 @@ plugins/github-dsh-plugin/
 - 401 → "token 失效或权限不足（fine-grained PAT 需勾选对应仓库与权限）"
 - 403 + rate → "限流；reset 时间 / 建议配置 token"
 
-## 3. 工具明细（9 个）
+## 3. 工具明细（8 个）
 
 通用约定：`repo` 参数接受 `owner/repo` 或 URL；列表默认 `perPage: 25`（上限
 100）；时间一律 ISO8601；`kind` 列标注 presentCall 类型。
@@ -215,19 +215,7 @@ plugins/github-dsh-plugin/
   search 限流独立（匿名 10 次/分，token 30 次/分）。
 - 输出按 scope 裁剪：repos → fullName/desc/stars；code → repo/path/sha7/片段 URL；issues → repo/number/title/state。
 
-### 3.8 github_notifications — 通知（read / write）
-
-| 参数 | 说明 |
-|---|---|
-| `action` | `list`（默认）/ `mark_done` |
-| `all` | list: 含已读，默认 false |
-| `participating` | 只看与我相关 |
-| `threadId` / `all` | mark_done: 单条或全部已读 |
-
-- list 项：threadId、repo、subject title/type、reason、updatedAt。
-- 典型玩法："早上把我的 GitHub 未读过一遍" → 模型汇总成日报。
-
-### 3.9 github_sync — 本地工作区同步（kind: write）
+### 3.8 github_sync — 本地工作区同步（kind: write）
 
 详见 §4。子命令：`list` / `clone` / `status` / `pull` / `branch` / `commit` / `push`。
 
@@ -352,3 +340,5 @@ plugins/github-dsh-plugin/
 4. **提交身份**：user.name=GitHub login，user.email=`<login>@users.noreply.github.com`，
    提交信息自动附 `Co-authored-by: coworker (DeepSeek Harness GLM)`（可配置）。
 5. **版本**：github 0.1.0；存量补齐 describe-image / unity-mcp / stock 均 0.1.0。
+6. **notifications 移除（v0.1.1）**：PAT 未授予 Notifications read 权限且不需要该
+   功能，`github_notifications` 从插件移除（工具数 9 → 8）。

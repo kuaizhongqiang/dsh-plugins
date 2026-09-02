@@ -74,11 +74,6 @@ const code = await run('github_search', { scope: 'code', q: 'defineTool repo:kua
 ok('code search with token', Array.isArray(code?.results), `total=${code?.total}`)
 show(code)
 
-// --- 4. notifications (needs Notifications:read on the PAT) ----------------------
-const notif = await run('github_notifications', { action: 'list', perPage: 5 })
-ok('notifications list', Array.isArray(notif?.notifications), `${notif?.count ?? 0} unread`, notif)
-show(notif)
-
 // --- 5. issues read (public repo) -----------------------------------------------
 const issues = await run('github_issue', { action: 'list', repo: 'microsoft/vscode', perPage: 3 })
 ok('issue list (per_page honored)', Array.isArray(issues?.issues) && issues.issues.length >= 1 && issues.issues.length <= 3, `count=${issues?.count}`)

@@ -52,5 +52,3 @@ if (issueNo) {
   line(`issue comment #${issueNo}`, await run('github_issue', { action: 'comment', repo: REPO, number: issueNo, body: 'smoke comment' }))
   line(`issue close #${issueNo}`, await run('github_issue', { action: 'close', repo: REPO, number: issueNo, comment: 'smoke done' }))
 }
-
-line('notifications list', await run('github_notifications', { action: 'list', perPage: 5 }))

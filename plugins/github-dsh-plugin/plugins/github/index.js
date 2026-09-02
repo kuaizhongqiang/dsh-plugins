@@ -1,8 +1,7 @@
 /**
  * GitHub repository management tools for the native dsh web profile:
  * `github_repo`, `github_files`, `github_file_write`, `github_issue`,
- * `github_pr`, `github_commit`, `github_search`, `github_notifications`,
- * and `github_sync`.
+ * `github_pr`, `github_commit`, `github_search`, and `github_sync`.
  *
  * The optional GITHUB_TOKEN resolves through the credentials seam (env
  * fallback); without it the plugin runs in anonymous read-only mode on public
@@ -107,5 +106,5 @@ export function apply(ctx, config) {
   registerHistoryTools(ctx, env)
   registerSyncTool(ctx, env)
 
-  console.info(`[tool-github] v${version} — 9 tools registered (tokenRef=${cfg.tokenRef}, apiBase=${cfg.apiBase})`)
+  console.info(`[tool-github] v${version} — 8 tools registered (tokenRef=${cfg.tokenRef}, apiBase=${cfg.apiBase})`)
 }

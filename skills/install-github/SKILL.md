@@ -1,6 +1,6 @@
 # 安装 github 插件
 
-把 GitHub 仓库管理插件装进目标电脑的 dsh web：9 个工具覆盖仓库/文件/issue/PR
+把 GitHub 仓库管理插件装进目标电脑的 dsh web：8 个工具覆盖仓库/文件/issue/PR
 的查询与写操作，以及本地工作区同步（clone/pull/commit/push）。
 
 - **无 token**：匿名模式，公开仓库只读（60 次/时），装完即用。
@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 1. 复制 `plugins/github`（index.js + package.json + lib/）到
    `%DSH_HOME%\profiles\web\plugins\github`，并打印版本号
 2. 幂等地在 `cordis.patch.yml` 追加 `- insert:` 的 `tool-github` 挂载条目
-   （已存在则跳过；一个条目注册九个工具）
+   （已存在则跳过；一个条目注册八个工具）
 
 确认输出出现 `OK  plugin copied ... (v0.1.0)`、`OK  profile patch entry
 added`（或 `SKIP ... already present`）。若报 `no dsh profiles found` 或

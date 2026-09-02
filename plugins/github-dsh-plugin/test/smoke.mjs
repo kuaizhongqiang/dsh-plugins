@@ -15,7 +15,7 @@ mod.apply(ctx, { projectRoot, workspaceRoot: join(projectRoot, 'global-ws') })
 
 const names = tools.map((t) => t.name)
 console.log('registered:', names.join(', '))
-if (names.length !== 9) throw new Error(`expected 9 tools, got ${names.length}`)
+if (names.length !== 8) throw new Error(`expected 8 tools, got ${names.length}`)
 
 const byName = Object.fromEntries(tools.map((t) => [t.name, t]))
 const renderOf = (name, args, value) => {
@@ -48,11 +48,7 @@ await run('commits list', 'github_commit', { repo: 'octocat/Hello-World', perPag
 // 6. search repos
 await run('search repos', 'github_search', { scope: 'repos', q: 'hello-world user:octocat' })
 
-// 7. notifications without token -> structured no-token error
-const notif = await run('notifications anon', 'github_notifications', { action: 'list' })
-if (notif?.error?.status !== 'no-token') throw new Error('expected no-token error for anonymous notifications')
-
-// 8. file_write read-only gate? (allowWrite defaults true; use invalid repo to see API error path)
+// 7. file_write missing content -> structured invalid-arg error
 await run('file_write missing content', 'github_file_write', { action: 'create', repo: 'octocat/Hello-World', path: 'x.txt', message: 'x' })
 
 // 9. sync: clone (project scope), status, branch, commit, list — local git only

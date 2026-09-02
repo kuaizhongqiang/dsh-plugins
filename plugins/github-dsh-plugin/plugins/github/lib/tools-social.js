@@ -1,5 +1,5 @@
 /**
- * Social tools for tool-github: `github_issue`, `github_pr`, `github_notifications`.
+ * Social tools for tool-github: `github_issue`, `github_pr`.
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -367,90 +367,6 @@ export function register(ctx, env) {
       card: 'generic',
       title: `GitHub PR ${args.action || 'list'}${args.number ? ` #${args.number}` : ''}`,
       kind: ['list', 'get'].includes(args.action || 'list') ? 'read' : 'write',
-      rawInput: args,
-    }),
-  }))
-
-  // --- github_notifications -------------------------------------------------------
-  ctx.tools.register(defineTool({
-    name: 'github_notifications',
-    description: 'Read or dismiss GitHub notifications for the authenticated account (requires GITHUB_TOKEN). '
-      + 'list returns unread items (all:true includes read); mark_done clears one thread (threadId) or everything. '
-      + 'Good for a morning digest: list, then let the model summarize.',
-    parameters: {
-      action: { type: 'string', description: 'list (default) | mark_done.' },
-      all: { type: 'boolean', description: 'list: include already-read notifications.' },
-      participating: { type: 'boolean', description: 'list: only notifications you participate in.' },
-      threadId: { type: 'number', description: 'mark_done: thread id; omit to mark everything read.' },
-      perPage: { type: 'number', description: 'list page size, default 25, max 50.' },
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          notifications: ARR,
-          done: { type: 'boolean' },
-          threadId: { type: 'number' },
-          count: { type: 'number' },
-          error: OBJ,
-        },
-      },
-      render: (_args, value) => {
-        const lines = []
-        if (value.error) lines.push(...fmtErr(value.error))
-        else if (value.notifications) {
-          lines.push(`未读通知 ${value.count} 条：`)
-          for (const x of value.notifications) {
-            lines.push(`- [${x.type}] ${x.repo}: ${x.title}（${x.reason}）${x.updatedAt}`)
-          }
-        } else if (value.done) lines.push(`✅ 已标记已读${value.threadId ? `（thread ${value.threadId}）` : '（全部）'}`)
-        const note = rateNote()
-        if (note) lines.push(note)
-        return [{ type: 'text', text: lines.join('\n') }]
-      },
-    },
-    async execute(args, exec) {
-      const token = await resolveToken()
-      const signal = exec?.signal
-      const action = args.action || 'list'
-      if (action === 'list') {
-        if (!token) return noTokenErr('读取通知')
-        const perPage = Math.min(Number(args.perPage) > 0 ? Number(args.perPage) : cfg.perPageDef, 50)
-        const res = await gh(withQuery('/notifications', {
-          all: args.all ? 'true' : undefined,
-          participating: args.participating ? 'true' : undefined,
-          per_page: perPage,
-        }), { token, signal })
-        if (res.kind !== 'ok') return errFromGh(res)
-        const items = Array.isArray(res.json) ? res.json : []
-        return {
-          count: items.length,
-          notifications: items.map((x) => ({
-            threadId: x.id,
-            repo: x.repository?.full_name ?? '',
-            title: x.subject?.title ?? '',
-            type: x.subject?.type ?? '',
-            reason: x.reason ?? '',
-            updatedAt: x.updated_at,
-            url: x.subject?.url ?? '',
-          })),
-        }
-      }
-      if (action === 'mark_done') {
-        if (!token) return noTokenErr('标记通知')
-        const res = args.threadId
-          ? await gh(`/notifications/threads/${Number(args.threadId)}`, { method: 'PATCH', token, signal })
-          : await gh('/notifications', { method: 'PUT', token, signal })
-        if (res.kind !== 'ok') return errFromGh(res)
-        return { done: true, threadId: args.threadId ?? null }
-      }
-      return invalidErr(`未知 action: ${action}`)
-    },
-    presentCall: (args) => ({
-      card: 'generic',
-      title: `GitHub notifications ${args.action || 'list'}`,
-      kind: args.action === 'mark_done' ? 'write' : 'read',
       rawInput: args,
     }),
   }))
