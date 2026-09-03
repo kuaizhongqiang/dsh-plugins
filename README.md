@@ -5,14 +5,16 @@
 **安装技能（skill）**：技能描述该插件的安装方法，让你在 dsh 会话里
 按需**选择安装哪些插件**。
 
-## PM1/PM2（路线图 §8 11→7 进行中）
+## PM1–PM4(路线图 §8 11→7 已落地)
 
-- **分层规范与模板**：[docs/PLUGIN-SPEC.md](docs/PLUGIN-SPEC.md)(分层/准入三问/install.ps1 规范/SKILL 模板要素) + `_templates/`
-- **合并包已落地**：
-  - [plugins/dsh-media-dsh-plugin](plugins/dsh-media-dsh-plugin/) —— 感知五合一(audio-read/audio-speak/describe-image/video-read/document-read),`-Only` 子集安装
-  - [plugins/dsh-deepseek-dsh-plugin](plugins/dsh-deepseek-dsh-plugin/) —— DeepSeek 账户二合一(balance/recharge)
-- **迁移**：旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 [uninstall-old.ps1](uninstall-old.ps1) 清理旧载荷与 patch 节
-- 验证:`node scripts/verify-pm2.mjs`(真 PowerShell 全流程 23 用例)
+- **分层规范与模板**:docs/PLUGIN-SPEC.md(分层/准入三问/install.ps1 规范/SKILL 模板要素) + `_templates/`
+- **合并包已落地**:
+  - plugins/dsh-media-dsh-plugin —— 感知五合一(audio-read/audio-speak/describe-image/video-read/document-read),`-Only` 子集安装
+  - plugins/dsh-deepseek-dsh-plugin —— DeepSeek 账户二合一(balance/recharge)
+  - plugins/dsh-launcher-dsh-plugin —— launcher 桥接(restart/status/connections/open/check_update,依赖 M5/M6 seam)
+- **迁移**:旧 7 包已标 `DEPRECATED.md`(保留一个版本周期);仓库根 uninstall-old.ps1 清理旧载荷与 patch 节
+- **技能 11→7**:install-media / install-deepseek / install-launcher 新增,旧 7 技能删除
+- 验证:`node scripts/verify-pm2.mjs`(23 用例)、`verify-pm3.mjs`(13)、`verify-pm4.mjs`(8)
 
 ## 目录结构
 
