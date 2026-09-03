@@ -38,9 +38,10 @@ Write-Host "OK  plugin copied -> $pluginDir  (v$version)" -ForegroundColor Green
 # --- 2. Add the profile patch entry (idempotent) ---------------------------
 $entryText = @'
 
-# --- stock analysis tools (native dsh) ---
+# --- dsh-stock: stock (native dsh) ---
 # stock_quote / stock_kline / stock_indicators / stock_market_overview /
-# watchlist_add|remove|list / stock_daily_collect / stock_report.
+# watchlist_add|remove|list / stock_daily_collect / stock_report /
+# sentiment_* / advice_calc / position_* / paper_*.
 # Data from Tencent public endpoints (no key); user data under %DSH_HOME%\stock.
 - insert:
     - id: tool-stock
