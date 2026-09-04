@@ -182,7 +182,7 @@ export function apply(ctx) {
         additionalProperties: false,
         properties: {
           summary: { type: 'string', required: true, description: '人读摘要(token 已脱敏)' },
-          detail: { type: 'object', required: true, description: '结构化明细' },
+          detail: { type: 'object', additionalProperties: true, required: true, description: '结构化明细' },
         },
       },
       render: (_a, v) => [{ type: 'text', text: v.summary }],
