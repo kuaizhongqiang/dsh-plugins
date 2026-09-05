@@ -35,7 +35,9 @@ export const version = PKG.version
 
 /** Configuration for the editor/server lifecycle. All fields optional; see apply(). */
 export const Config = z.object({
-  enabled: z.boolean(),
+  // Default OFF (opt-in): set enabled: true in the profile patch entry (and
+  // restart web) to let this supervisor auto-start the Unreal Editor.
+  enabled: z.boolean().default(false),
   /** Endpoint used for the reachability probe (the MCP streamable-http URL). */
   endpointUrl: z.string(),
   /** Executable that starts the server (the Unreal Editor binary). */
@@ -110,7 +112,7 @@ function spawnEditor(command, args, cwd, logFile, log) {
 export function apply(ctx, config) {
   console.info(`[ue-mcp-supervisor] v${version} registered`)
   const log = typeof ctx.logger === 'function' ? ctx.logger('ue-mcp') : console
-  const enabled = config.enabled ?? true
+  const enabled = config.enabled ?? false
   const endpointUrl = config.endpointUrl ?? DEFAULTS.endpointUrl
   const command = config.command ?? DEFAULTS.command
   const args = config.args ?? DEFAULTS.args

@@ -11,6 +11,8 @@ whenToUse: 用户想用 dsh 操作 UE 编辑器/工程（摆 Actor、查场景�
 `http://127.0.0.1:8000/mcp`，无响应时按机器配置自动拉起
 `UnrealEditor -ModelContextProtocolStartServer` 并写日志。
 
+**默认安装为关闭（opt-in）**：不常驻、不自动拉起编辑器；需要时再手动启用。
+
 > UE 侧前置见 [Epic 官方文档](https://dev.epicgames.com/documentation/unreal-engine/unreal-mcp-in-unreal-editor?lang=zh-CN)。
 
 ## 0. 定位插件包
@@ -42,8 +44,14 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 1. 复制 `plugins/ue-mcp` 到 `%DSH_HOME%\profiles\web\plugins\ue-mcp`
 2. 幂等地在 `cordis.patch.yml` 追加两个 `- insert:` 条目（已存在则跳过）：
    - `mcp-ue`：`@deepseek-ai/dsh-mcp-client`，streamable-http 连接
-     `http://127.0.0.1:8000/mcp`，`serverName: unreal`
+     `http://127.0.0.1:8000/mcp`，`serverName: unreal`（默认 `disabled: true`）
    - `ue-mcp-supervisor`：本包插件，保证端点可达（拉起编辑器）
+     （默认 `enabled: false`，不自动拉起编辑器）
+
+两个条目默认都为关闭。**启用步骤**：编辑 `%DSH_HOME%\profiles\web\cordis.patch.yml`，
+把 `mcp-ue` 的 `disabled: true` 改为 `false`；若希望 dsh 自动拉起编辑器，再把
+`ue-mcp-supervisor` 的 `enabled: false` 改为 `true`，然后重启 `dsh web`。
+（自己手动带 MCP 参数打开编辑器时，只需启用 `mcp-ue`。）
 
 本插件**不需要任何 API key**。
 

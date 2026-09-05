@@ -50,9 +50,15 @@ $entryText = @'
 # serverName: unreal -> tools appear as mcp__unreal__list_toolsets etc.
 # The endpoint lives inside the Unreal Editor; ue-mcp-supervisor below keeps it
 # reachable by starting the editor with -ModelContextProtocolStartServer.
+# BOTH rows are installed DISABLED BY DEFAULT (no resident polling, no
+# auto-starting the editor). To use UE MCP: launch the editor yourself with
+# -ModelContextProtocolStartServer, then set disabled: false on mcp-ue and
+# restart dsh web; set ue-mcp-supervisor enabled: true only if you want dsh to
+# auto-start the editor for you.
 - insert:
     - id: mcp-ue
       name: '@deepseek-ai/dsh-mcp-client'
+      disabled: true
       config:
         serverName: unreal
         transport: streamable-http
@@ -65,11 +71,13 @@ $entryText = @'
 # Starts the Unreal Editor (UE 5.8+) with -ModelContextProtocolStartServer when
 # http://127.0.0.1:8000/mcp does not answer. command/args must point at the
 # local engine editor binary and the target .uproject.
+# DISABLED BY DEFAULT: set enabled to true (then restart web) to let it
+# auto-start the editor; or launch the editor manually and only enable mcp-ue.
 - insert:
     - id: ue-mcp-supervisor
       name: './plugins/ue-mcp/index.js'
       config:
-        enabled: true
+        enabled: false
         endpointUrl: http://127.0.0.1:8000/mcp
         command: 'E:\Unreal\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe'
         args:
